@@ -16,9 +16,6 @@ import tempfile
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
-# Reference digest of the original runtime package supplied for this project.
-# We report the observed digest for audit, while ZIP CRC validation is the hard
-# integrity gate because the GitHub text transport may normalize opaque chunks.
 REFERENCE_BUNDLE_SHA256 = "27c75c2047bb1156f42dc5eebcaffac3f8c2a84c9262662c64377cbecf8c700f"
 ROOT = Path(__file__).resolve().parent
 PARTS = ROOT / "vendor" / "runtime_parts"
@@ -48,7 +45,7 @@ def ensure_full_runtime() -> Path:
     encoded = "".join(path.read_text(encoding="ascii").strip() for path in chunks)
     try:
         archive = base64.b64decode(encoded, validate=True)
-    except Exception as error:  # pragma: no cover - defensive corruption guard
+    except Exception as error:  # pragma: no cover
         raise RuntimeError(f"The vendored fdd-data-preparation runtime is not valid base64: {error}") from error
     digest = hashlib.sha256(archive).hexdigest()
 
@@ -67,11 +64,11 @@ def ensure_full_runtime() -> Path:
         extracted = temporary / "extracted"
         try:
             with ZipFile(archive_path) as package:
-                bad_member = package.testzip()
-                if bad_member:
+                bad_members = _bad_zip_members(package)
+                if bad_members:
                     raise RuntimeError(
-                        "The vendored fdd-data-preparation runtime failed ZIP CRC validation at "
-                        f"{bad_member}. Observed bundle SHA-256: {digest}."
+                        "The vendored fdd-data-preparation runtime failed ZIP CRC validation. "
+                        f"Bad members: {', '.join(bad_members)}. Observed bundle SHA-256: {digest}."
                     )
                 package.extractall(extracted)
         except BadZipFile as error:
@@ -87,8 +84,7 @@ def ensure_full_runtime() -> Path:
         RUNTIME.mkdir(parents=True, exist_ok=False)
         shutil.move(str(candidate), str(project))
         marker.write_text(digest + "\n", encoding="utf-8")
-        audit = RUNTIME / ".bundle_reference_sha256"
-        audit.write_text(
+        (RUNTIME / ".bundle_reference_sha256").write_text(
             f"reference={REFERENCE_BUNDLE_SHA256}\nobserved={digest}\n",
             encoding="utf-8",
         )
@@ -97,13 +93,11 @@ def ensure_full_runtime() -> Path:
 
 
 def activate_full_runtime() -> tuple[Path, object]:
-    """Extract the full project if needed, put its ``src`` first on sys.path, and import fdd_data."""
     project = ensure_full_runtime()
     source = project / "src"
     source_text = str(source)
     if source_text not in sys.path:
         sys.path.insert(0, source_text)
-    # A prior lightweight package must never win module resolution.
     loaded = sys.modules.get("fdd_data")
     if loaded is not None:
         loaded_file = str(getattr(loaded, "__file__", "") or "")
@@ -115,9 +109,19 @@ def activate_full_runtime() -> tuple[Path, object]:
 
 
 def sync_runtime_knowledge() -> None:
-    """Persist safe learning updates under ignored work/, never in tracked config."""
-    project = RUNTIME / "fdd-data-preparation"
-    _preserve_runtime_knowledge(project)
+    _preserve_runtime_knowledge(RUNTIME / "fdd-data-preparation")
+
+
+def _bad_zip_members(package: ZipFile) -> list[str]:
+    bad: list[str] = []
+    for info in package.infolist():
+        if info.is_dir():
+            continue
+        try:
+            package.read(info)
+        except (BadZipFile, EOFError, OSError, RuntimeError):
+            bad.append(info.filename)
+    return bad
 
 
 def _assert_required_runtime(project: Path) -> None:
@@ -153,5 +157,4 @@ def _preserve_runtime_knowledge(project: Path) -> None:
 
 
 if __name__ == "__main__":
-    runtime = ensure_full_runtime()
-    print(runtime)
+    print(ensure_full_runtime())
