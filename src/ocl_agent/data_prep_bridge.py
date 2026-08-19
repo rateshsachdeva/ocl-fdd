@@ -1,9 +1,9 @@
 """Bridge from the OCL skill to the full AI+Python fdd-data-preparation workflow.
 
-This module deliberately does not interpret raw Excel.  The embedded full
+This module deliberately does not interpret raw Excel. The embedded full
 ``fdd-data-preparation`` runtime owns raw-source discovery, profiling, AI-host
 Dataset Map / Processing Plan checkpoints, deterministic execution,
-completeness, lineage and publication.  OCL starts only after a publishable
+completeness, lineage and publication. OCL starts only after a publishable
 standardized package exists.
 """
 from __future__ import annotations
@@ -15,6 +15,30 @@ from pathlib import Path
 from typing import Any
 
 PUBLISHABLE_STATUSES = {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
+COORDINATION_KEYS = (
+    "next_actor",
+    "must_continue",
+    "next_action",
+    "handoff_path",
+    "relevant_instruction",
+    "required_artifact",
+    "required_artifacts",
+    "resume_command",
+    "blocking_question_count",
+    "approval_required",
+    "interaction_type",
+    "question_id",
+    "question",
+    "reason",
+    "options",
+    "recommended_option_id",
+    "recommendation_reason",
+    "allow_other",
+    "multi_select",
+    "decision_effect",
+    "fallback_presentation",
+    "workflow_state",
+)
 
 
 @dataclass(frozen=True)
@@ -37,10 +61,9 @@ class DataPrepBridgeResult:
 def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path) -> DataPrepBridgeResult:
     """Advance the full data-preparation workflow by one deterministic/AI-host turn.
 
-    The function may return an ``AI_HOST`` or ``HUMAN`` coordination checkpoint.
     A coding-agent host should satisfy AI-host checkpoints using the exact
     instruction/handoff paths returned by the upstream workflow, then rerun the
-    top-level OCL command.  Python never substitutes a header-guessing parser for
+    top-level OCL command. Python never substitutes a header-guessing parser for
     that reasoning step.
     """
     repo_root = Path(repo_root).resolve()
@@ -63,7 +86,7 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         raise RuntimeError("fdd-data-preparation returned an invalid workflow status payload.")
 
     upstream_state = str(status.get("state") or "UNKNOWN")
-    coordination = status.get("coordination") if isinstance(status.get("coordination"), dict) else {}
+    coordination = _coordination_from_status(status)
     run_id = status.get("run_id")
     latest = output_root / "latest"
     manifest = _read_json(latest / "execution_manifest.json")
@@ -84,8 +107,7 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     elif upstream_state == "FAILED":
         bridge_state = "DATA_PREP_FAILED"
     else:
-        actor = str(coordination.get("next_actor") or "").upper()
-        bridge_state = f"DATA_PREP_AWAITING_{actor}" if actor else f"DATA_PREP_{upstream_state}"
+        bridge_state = f"DATA_PREP_{upstream_state}"
 
     return DataPrepBridgeResult(
         state=bridge_state,
@@ -98,6 +120,23 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         raw_status=status,
         warnings=tuple(warnings),
     )
+
+
+def _coordination_from_status(status: dict[str, Any]) -> dict[str, Any]:
+    """Support the full upstream contract, which exposes coordination at top level."""
+    nested = status.get("coordination")
+    result = dict(nested) if isinstance(nested, dict) else {}
+    for key in COORDINATION_KEYS:
+        if key in status and status[key] is not None:
+            result.setdefault(key, status[key])
+
+    actor = str(result.get("next_actor") or "").upper()
+    if actor == "AI_HOST":
+        # Root OCL orchestration, not the user, owns continuation after the host
+        # writes the requested reasoning artifacts.
+        result["must_continue"] = True
+    result["resume_command"] = "python run_all.py"
+    return result
 
 
 def _load_bootstrap(repo_root: Path):
