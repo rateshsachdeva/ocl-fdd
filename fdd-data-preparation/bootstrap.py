@@ -13,6 +13,7 @@ import hashlib
 import shutil
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -67,7 +68,7 @@ def ensure_full_runtime() -> Path:
                 bad_members = _bad_zip_members(package)
                 if bad_members:
                     raise RuntimeError(
-                        "The vendored fdd-data-preparation runtime failed ZIP CRC validation. "
+                        "The vendored fdd-data-preparation runtime failed ZIP CRC/decompression validation. "
                         f"Bad members: {', '.join(bad_members)}. Observed bundle SHA-256: {digest}."
                     )
                 package.extractall(extracted)
@@ -119,7 +120,7 @@ def _bad_zip_members(package: ZipFile) -> list[str]:
             continue
         try:
             package.read(info)
-        except (BadZipFile, EOFError, OSError, RuntimeError):
+        except (BadZipFile, EOFError, OSError, RuntimeError, zlib.error):
             bad.append(info.filename)
     return bad
 
