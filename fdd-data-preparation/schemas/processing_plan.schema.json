@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"FDD Processing Plan","type":"object","required":["plan_metadata","proposed_outputs","non_output_logical_datasets"],"properties":{"plan_metadata":{"type":"object"},"proposed_outputs":{"type":"array"},"non_output_logical_datasets":{"type":"array"},"autonomous_approval_assessment":{"type":"object"}}}

@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"FDD Approval Questions","type":"object","required":["workflow_run_id","plan_id","plan_version","generated_at","blocking_questions","non_blocking_assumptions","information_items"]}
