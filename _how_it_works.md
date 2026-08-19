@@ -2,77 +2,69 @@
 
 ## What you do
 
-Put the raw Excel files in:
-
-```text
-references/source/
-```
-
-Run:
+Put the raw Excel files in `references/source/` and start the root workflow:
 
 ```bash
 python run_all.py
 ```
 
-## What the skill does
+## What happens internally
 
 ```text
-RAW CLIENT EXCEL FILES
+RAW CLIENT EXCEL
         ↓
-embedded fdd-data-preparation
+Python profiles structure and preserves source hashes
         ↓
-standardized data + manifest + metadata + lineage
+AI understands the logical datasets
         ↓
-OCL semantic roles
+AI writes the deterministic processing plan
         ↓
-OCL scope + dynamic category/hierarchy + WC/debt/normality
+Python validates and executes the plan
         ↓
-reconciliation controls
+Python proves completeness and lineage
         ↓
-dynamic workbook blueprint
+STANDARDIZED LONG / FLAT DATABASE
+work/data_prep/output/latest/
         ↓
-formula-driven Excel databook
+AI understands which standardized data supports OCL
+        ↓
+AI reviews OCL scope / mapping / hierarchy / WC-debt / normality
+        ↓
+Python runs hard controls and builds the dynamic databook
         ↓
 analysis + management questions
         ↓
-professional FDD workbook styling
-        ↓
-independent final QA
+professional FDD styling + final QA
         ↓
 output/OCL_Databook.xlsx
 ```
 
-The secondary `output/OCL_Report.pptx` is generated from the same reconciled model.
+`output/OCL_Report.pptx` is secondary and uses the same reconciled OCL model.
 
-## Why the split still matters
+## The important boundary
 
-Even though the user now runs one repository and one command, the responsibilities remain separated internally:
+`fdd-data-preparation/` is responsible for messy client formats. It uses AI understanding plus deterministic Python to normalize those formats into a reliable database.
 
-- `fdd-data-preparation/` owns source discovery, deterministic reshaping, metadata and lineage.
-- `ocl_agent` owns OCL-specific accounting/FDD meaning.
-- deterministic Python owns calculations, controls, formula creation, rendering and final QA.
-- human-maintained config overrides autonomous defaults.
+`ocl_agent` does not parse the original workbook. It starts from the published database and applies OCL/FDD meaning.
 
-This keeps the workflow simple to use without mixing source parsing and OCL judgment into one opaque script.
+So a different client workbook layout should normally change the AI-authored processing plan, **not** require another OCL parser or hard-coded header alias.
+
+## When the workflow pauses
+
+A plain terminal can execute Python but cannot itself perform an AI reasoning checkpoint. In that case `run_all.py` prints `Next actor: AI_HOST`, the handoff file and the required artifact(s).
+
+When the skill is being run by a capable coding/agent AI, that host should read the handoff, perform the reasoning, write the required artifact(s), and rerun the same root workflow automatically. Human input is reserved for genuine material ambiguity or approval, not internal workflow steps.
 
 ## Dynamic workbook rule
 
 ```text
-SOURCE DATA + OCL JUDGMENT
+STANDARDIZED DATA + REVIEWED OCL JUDGMENT
         ↓
 DYNAMIC WORKBOOK STRUCTURE
         ↓
-DETERMINISTIC FORMULAS
+DETERMINISTIC FORMULAS AND CONTROLS
         ↓
 FDD PRESENTATION LAYER
 ```
 
-There is no `Template.xlsx`, fixed period range or legacy category list.
-
-## Controls
-
-The skill never hides a mismatch with a balancing plug. Applicable controls must pass. Unsupported controls are explicitly `NOT_APPLICABLE`. Populated source sheets that cannot be classified safely remain visible in data-preparation metadata.
-
-## Efficiency rule
-
-The runtime stays deliberately light: standard-library CSV/JSON plus `openpyxl` and `python-pptx`; no pandas and no external LLM API in the deterministic financial core.
+There is no fixed `Template.xlsx`, fixed period range or legacy category list. Applicable controls must pass; unsupported controls are explicit `NOT_APPLICABLE`; failed controls are never hidden with plugs.
