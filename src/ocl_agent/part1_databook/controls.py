@@ -12,13 +12,7 @@ from ocl_agent.part1_databook.semantic_handoff import ControlBinding, DatasetUsa
 from ocl_agent.schemas import CheckStatus, ControlResult, OCLRecord, Scope
 
 
-def build_core_controls(
-    records: tuple[OCLRecord, ...],
-    build: RecordBuildResult,
-    handoff: SemanticHandoff,
-    judgment_issues: tuple[JudgmentIssue, ...],
-    package: StandardizedPackage | None = None,
-) -> tuple[ControlResult, ...]:
+def build_core_controls(records: tuple[OCLRecord, ...], build: RecordBuildResult, handoff: SemanticHandoff, judgment_issues: tuple[JudgmentIssue, ...], package: StandardizedPackage | None = None, *, movement_control: ControlResult | None = None, continuity_control: ControlResult | None = None) -> tuple[ControlResult, ...]:
     controls: list[ControlResult] = [category_sum_control(records)]
     input_rows = sum(build.input_rows_by_dataset.values())
     accounted = len(build.records) + len(build.issues)
@@ -39,16 +33,19 @@ def build_core_controls(
         controls.append(_source_control(records, package, scope_binding, scopes={Scope.IN_SCOPE, Scope.TRADE_PAYABLE, Scope.FINANCING}))
     else:
         unresolved_scope = sum(1 for row in records if row.judgment.scope == Scope.REVIEW_REQUIRED)
-        controls.append(reconcile_amounts("chk_scope_reconciles", Decimal(unresolved_scope), Decimal(0), message="All candidate rows have an explicit scope. A source-backed current-liabilities control may be bound in semantic_handoff.json when available."))
+        controls.append(reconcile_amounts("chk_scope_reconciles", Decimal(unresolved_scope), Decimal(0), message="All candidate rows have an explicit scope. A source-backed current-liabilities control may be bound when available."))
 
     wc_missing = sum(1 for row in records if row.judgment.scope == Scope.IN_SCOPE and (not row.judgment.management_view or not row.judgment.fdd_view))
     controls.append(reconcile_amounts("chk_wcdebt_exhaustive", Decimal(wc_missing), Decimal(0), message="Every in-scope OCL record requires management and FDD WC/debt-like treatment."))
 
-    if DatasetUsage.MOVEMENT_RECORDS in usages:
-        controls.append(ControlResult("chk_rollforward", CheckStatus.REVIEW_REQUIRED, message="Movement data is present; roll-forward reconciliation is not published until movement semantics are completed."))
+    if movement_control is not None:
+        controls.append(movement_control)
+    elif DatasetUsage.MOVEMENT_RECORDS in usages:
+        controls.append(ControlResult("chk_rollforward", CheckStatus.REVIEW_REQUIRED, message="Movement data is present but explicit movement rules/alignment were not supplied."))
     else:
         controls.append(not_applicable("chk_rollforward", "No movement dataset is available."))
-    controls.append(not_applicable("chk_continuity", "Period continuity requires explicit ordered period semantics; period labels are not guessed."))
+
+    controls.append(continuity_control or not_applicable("chk_continuity", "Period continuity requires an explicit expected period sequence; labels are not guessed."))
     controls.append(_monthly_to_annual_control(records, handoff, usages))
 
     if build.issues:
@@ -86,7 +83,6 @@ def _source_control(records: tuple[OCLRecord, ...], package: StandardizedPackage
         return ControlResult(binding.control_id, CheckStatus.FAIL, message=f"Unable to read bound control dataset: {error}")
     if not evidence_rows:
         return ControlResult(binding.control_id, CheckStatus.FAIL, message="Explicit control filter matched no standardized source rows.", evidence={"filters": binding.filters, "dataset": binding.dataset_file})
-
     actual_by_period: dict[str, Decimal] = {}
     for row in records:
         if row.dimensions.get("record_usage") == DatasetUsage.MONTHLY_RECORDS.value:
