@@ -1,9 +1,8 @@
 """Shared contracts used by all four OCL parts.
 
-The contracts intentionally avoid a fixed financial statement schema.  They
-capture provenance, reviewed judgments, dynamic hierarchy and control results.
+The contracts capture provenance, reviewed judgments, dynamic hierarchy and
+control results without imposing a fixed OCL category universe.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -43,6 +42,7 @@ class SourceReference:
 
 @dataclass(frozen=True)
 class OCLJudgment:
+    # Keep the original positional field order for backwards compatibility.
     source_label: str
     scope: Scope
     category: str | None = None
@@ -52,6 +52,8 @@ class OCLJudgment:
     normality: str | None = None
     review_status: ReviewStatus = ReviewStatus.UNRESOLVED
     reason: str | None = None
+    source_code: str | None = None
+    entity: str | None = None
 
 
 @dataclass(frozen=True)

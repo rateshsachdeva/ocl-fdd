@@ -1,42 +1,29 @@
 # OCL FDD
 
-Dynamic, auditable financial due-diligence workflow for Other Current Liabilities (OCL).
-
-## Design
-
-The repository does **not** use a fixed Excel workbook as the structural basis of the databook.  The structure is derived from approved standardized data, reviewed OCL judgments, available periods, actual hierarchy and analyses supported by the engagement.
+Dynamic, auditable financial due-diligence workflow for Other Current Liabilities.
 
 ```text
 fdd-data-preparation
         ↓
 approved standardized data + metadata + lineage
         ↓
-Part 1 — OCL scope / mapping / hierarchy / judgment / controls
+OCL semantic handoff + reviewed judgments + hard controls
         ↓
-shared reconciled OCL data model
+dynamic OCL_Databook.xlsx
         ↓
-├─ dynamic OCL_Databook.xlsx
-├─ Part 2 findings
-├─ Part 3 management Q&A
-└─ Part 4 OCL_Report.pptx
+analysis → management Q&A → OCL_Report.pptx
 ```
 
-## Core rules
+The Excel databook has **no fixed structural template**. Actual data, reviewed OCL judgment, available periods, real hierarchy and supported analyses determine what exists. Deterministic Python calculates/reconciles/renders; the AI host interprets and drafts; human-reviewed config remains authoritative.
 
-- source numbers are never invented;
-- source lineage is preserved;
-- nothing is silently dropped;
-- human-reviewed configuration overrides AI suggestions;
-- reconciliation is a hard control;
-- deterministic Python performs calculations, controls and workbook rendering;
-- Parts 1-4 share one reconciled data model;
-- `python run_all.py` remains the public entry point;
-- no `Template.xlsx`, legacy fixed line-item list, fixed period range or empty analysis section is allowed to drive the databook.
+The core intentionally stays light: standard-library CSV/JSON plus `openpyxl`, streaming row processing, bounded review samples, no pandas, no embedded LLM API and no second raw-source parser.
 
-## Current milestone
+Run with:
 
-The first foundation milestone provides the repository structure, shared contracts, upstream publication validation, human-owned judgment loading, dynamic workbook blueprint generation, deterministic rendering primitives, reconciliation primitives, tests and CI.
+```bash
+python run_all.py --data-prep-output <path-to-fdd-data-preparation/output/latest>
+```
 
-It deliberately stops before inventing a universal adapter from arbitrary standardized columns to OCL fields.  That semantic handoff will be implemented from actual `fdd-data-preparation` metadata and reviewed evidence in the next stage.
+If the two repos are side-by-side and the upstream `output/latest` exists, `python run_all.py` can discover it automatically.
 
-See [`SKILL.md`](SKILL.md) and [`_how_it_works.md`](_how_it_works.md).
+See `SKILL.md` for the operating contract and `_how_it_works.md` for the workflow.

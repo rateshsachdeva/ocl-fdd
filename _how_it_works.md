@@ -1,7 +1,5 @@
 # How This OCL Skill Works
 
-## Core architecture
-
 ```text
 RAW CLIENT DATA
       ↓
@@ -9,31 +7,41 @@ fdd-data-preparation
       ↓
 APPROVED STANDARDIZED DATA + METADATA + LINEAGE
       ↓
-Part 1 — OCL Databook
-  scope → mapping/hierarchy → WC/debt/normalization judgment
+semantic handoff (AI host interprets; Python validates)
       ↓
-SHARED RECONCILED OCL DATA MODEL
+reviewed scope + mapping/hierarchy + WC/debt + normality
       ↓
-  ├─ Part 1 dynamic workbook rendering
-  ├─ Part 2 analysis/findings
-  ├─ Part 3 management Q&A
-  └─ Part 4 PowerPoint report
+shared reconciled OCL data model
+      ↓
+controls
+      ↓
+dynamic workbook blueprint
+      ↓
+deterministic Excel rendering
+      ↓
+OCL_Databook.xlsx
 ```
 
-## Non-negotiable design rules
+## Why the split matters
 
-1. Source numbers are never invented.
-2. Client source data and provenance are preserved.
-3. Nothing is silently dropped; unmapped and excluded records stay visible.
-4. Human-reviewed configuration owns financial meaning.
-5. Reconciliation is a hard control.
-6. Optional inputs degrade gracefully.
-7. Deterministic Python calculates, reconciles and renders.
-8. AI can interpret and draft but does not become the financial calculation engine.
-9. No `Template.xlsx` or fixed workbook controls the databook structure.
-10. Actual data + analytical judgment determine sheets, periods, categories, hierarchy and supported analyses.
-11. The styling guide controls appearance only.
-12. Parts 1-4 must consume the same reconciled OCL model.
+- `fdd-data-preparation` owns generic raw-source discovery, understanding and reshaping.
+- OCL owns OCL-specific financial meaning and review.
+- Python owns calculations, traceability, controls and workbook writing.
+- The AI host owns contextual interpretation and drafting, not financial arithmetic.
+- Human-reviewed config is the highest authority.
+
+## Part 1 states
+
+```text
+run_all.py
+   │
+   ├─ no confirmed semantic handoff → AWAITING_SEMANTIC_HANDOFF
+   ├─ incomplete/unreviewed OCL judgments → AWAITING_JUDGMENT_REVIEW
+   ├─ hard control needs alignment / has break → AWAITING_CONTROL_ALIGNMENT
+   └─ applicable controls pass → DATABOOK_READY
+```
+
+The skill never solves a failed control with a plug. A missing prerequisite is `NOT_APPLICABLE`; an available but unresolved prerequisite is `REVIEW_REQUIRED`.
 
 ## Dynamic workbook rule
 
@@ -47,7 +55,8 @@ DETERMINISTIC PYTHON RENDERING
 OCL WORKBOOK STYLING GUIDE
 ```
 
-Mandatory control/review concepts such as Checks, Mapping, UNMAPPED and
-SCOPE_EXCLUDED remain visible even though analytical sheet structure is dynamic.
-A control may be `NOT_APPLICABLE` when its prerequisite data does not exist; the
-skill must not invent an analysis merely to satisfy a fixed layout.
+No `Template.xlsx`, fixed period range, legacy category list or empty analysis section drives the workbook. `Checks`, mapping transparency, unmapped visibility and scope-exclusion visibility remain mandatory control concepts.
+
+## Efficiency rule
+
+Keep the deterministic core small: stream standardized CSV rows, keep only bounded samples for interpretation, use standard-library CSV/JSON plus `openpyxl`, and reuse the one OCL record model everywhere. Do not add pandas, an LLM API, or a second raw-source parser unless a demonstrated requirement justifies it.
