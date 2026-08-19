@@ -31,7 +31,20 @@ class WorkbookBlueprint:
         return tuple(sheet.key for sheet in self.sheets)
 
 
-def build_blueprint(records: Iterable[OCLRecord], *, source_dataset_files: Iterable[str] = (), has_rollforward_data: bool = False, supported_analyses: Iterable[str] = ()) -> WorkbookBlueprint:
+def build_blueprint(
+    records: Iterable[OCLRecord],
+    *,
+    source_dataset_files: Iterable[str] = (),
+    has_monthly_data: bool | None = None,
+    has_rollforward_data: bool = False,
+    supported_analyses: Iterable[str] = (),
+) -> WorkbookBlueprint:
+    """Build workbook structure only from records that actually exist.
+
+    ``has_monthly_data`` is retained as a compatibility argument for the
+    foundation API. Monthly sheets are still driven by rows explicitly tagged
+    ``MONTHLY_RECORDS`` so a caller cannot force unsupported monthly content.
+    """
     rows = tuple(records)
     annual_rows = tuple(row for row in rows if row.dimensions.get("record_usage") != "MONTHLY_RECORDS")
     monthly_rows = tuple(row for row in rows if row.dimensions.get("record_usage") == "MONTHLY_RECORDS")
