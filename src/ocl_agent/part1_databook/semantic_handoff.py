@@ -14,10 +14,8 @@ from typing import Any
 
 from ocl_agent.part1_databook.input_contract import DatasetProfile, StandardizedPackage
 
-
 class SemanticHandoffError(ValueError):
     pass
-
 
 class DatasetUsage(StrEnum):
     OCL_RECORDS = "OCL_RECORDS"
@@ -28,9 +26,7 @@ class DatasetUsage(StrEnum):
     PAYROLL_CONTEXT = "PAYROLL_CONTEXT"
     IGNORE = "IGNORE"
 
-
 RECORD_USAGES = {DatasetUsage.OCL_RECORDS, DatasetUsage.MONTHLY_RECORDS}
-
 
 @dataclass(frozen=True)
 class FieldBinding:
@@ -49,7 +45,6 @@ class FieldBinding:
             self.source_code, self.entity, self.currency, self.movement_type,
         ) if value)
 
-
 @dataclass(frozen=True)
 class DatasetBinding:
     file: str
@@ -57,6 +52,21 @@ class DatasetBinding:
     fields: FieldBinding
     dimensions: tuple[str, ...] = ()
     notes: str = ""
+
+@dataclass(frozen=True)
+class PeriodAlignment:
+    annual_period: str
+    monthly_period: str
+
+
+@dataclass(frozen=True)
+class ControlBinding:
+    """Exact source-backed control definition; no keyword guessing is allowed."""
+    control_id: str
+    dataset_file: str
+    period_field: str
+    amount_field: str
+    filters: dict[str, tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,8 @@ class SemanticHandoff:
     package_id: str
     datasets: tuple[DatasetBinding, ...]
     unresolved_matters: tuple[str, ...] = ()
+    monthly_to_annual: tuple[PeriodAlignment, ...] = ()
+    controls: tuple[ControlBinding, ...] = ()
 
     def record_bindings(self) -> tuple[DatasetBinding, ...]:
         return tuple(binding for binding in self.datasets if set(binding.usages) & RECORD_USAGES)
@@ -115,6 +127,8 @@ def write_semantic_handoff_draft(
         "package_id": package_id(package),
         "datasets": datasets,
         "unresolved_matters": [],
+        "monthly_to_annual": [],
+        "controls": [],
     }
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,12 +217,76 @@ def load_semantic_handoff(
                 )
         bindings.append(DatasetBinding(filename, usages, fields, dimensions, str(item.get("notes", ""))))
 
+    alignments: list[PeriodAlignment] = []
+    seen_annual: set[str] = set()
+    for item in payload.get("monthly_to_annual", []):
+        if not isinstance(item, dict):
+            raise SemanticHandoffError("monthly_to_annual entries must be objects.")
+        annual = str(item.get("annual_period", "")).strip()
+        monthly = str(item.get("monthly_period", "")).strip()
+        if not annual or not monthly:
+            raise SemanticHandoffError("monthly_to_annual requires annual_period and monthly_period.")
+        if annual in seen_annual:
+            raise SemanticHandoffError(f"Duplicate annual period in monthly_to_annual: {annual!r}")
+        seen_annual.add(annual)
+        alignments.append(PeriodAlignment(annual, monthly))
+
+    control_bindings: list[ControlBinding] = []
+    seen_control_ids: set[str] = set()
+    binding_by_file = {binding.file: binding for binding in bindings}
+    supported_controls = {"chk_listing_vs_tb", "chk_scope_reconciles"}
+    for item in payload.get("controls", []):
+        if not isinstance(item, dict):
+            raise SemanticHandoffError("controls entries must be objects.")
+        control_id = str(item.get("control_id", "")).strip()
+        dataset_file = str(item.get("dataset_file", "")).strip()
+        period_field = str(item.get("period_field", "")).strip()
+        amount_field = str(item.get("amount_field", "")).strip()
+        if control_id not in supported_controls:
+            raise SemanticHandoffError(f"Unsupported source-backed control: {control_id!r}")
+        if control_id in seen_control_ids:
+            raise SemanticHandoffError(f"Duplicate control binding: {control_id!r}")
+        seen_control_ids.add(control_id)
+        if dataset_file not in profile_by_name:
+            raise SemanticHandoffError(f"Control {control_id!r} references unknown dataset {dataset_file!r}.")
+        dataset_binding = binding_by_file.get(dataset_file)
+        if dataset_binding is None or DatasetUsage.TB_CONTROL not in dataset_binding.usages:
+            raise SemanticHandoffError(
+                f"Control {control_id!r} dataset {dataset_file!r} must be explicitly assigned TB_CONTROL usage."
+            )
+        raw_filters = item.get("filters") or {}
+        if not isinstance(raw_filters, dict):
+            raise SemanticHandoffError(f"Control {control_id!r}: filters must be an object.")
+        filters: dict[str, tuple[str, ...]] = {}
+        for column, values in raw_filters.items():
+            if isinstance(values, str):
+                normalized_values = (values,)
+            elif isinstance(values, list):
+                normalized_values = tuple(str(value) for value in values)
+            else:
+                raise SemanticHandoffError(
+                    f"Control {control_id!r}: filter values for {column!r} must be a string or list of strings."
+                )
+            if not normalized_values:
+                raise SemanticHandoffError(f"Control {control_id!r}: filter {column!r} has no values.")
+            filters[str(column)] = normalized_values
+        available = set(profile_by_name[dataset_file].columns)
+        referenced = {period_field, amount_field, *filters}
+        missing = sorted(value for value in referenced if not value or value not in available)
+        if missing:
+            raise SemanticHandoffError(
+                f"Control {control_id!r} references missing/blank columns: {', '.join(repr(value) for value in missing)}"
+            )
+        control_bindings.append(ControlBinding(control_id, dataset_file, period_field, amount_field, filters))
+
     handoff = SemanticHandoff(
         version,
         status,
         bound_package_id,
         tuple(bindings),
         tuple(str(value) for value in payload.get("unresolved_matters", [])),
+        tuple(alignments),
+        tuple(control_bindings),
     )
     if require_confirmed and not handoff.record_bindings():
         raise SemanticHandoffError("Confirmed semantic handoff contains no dataset assigned to OCL_RECORDS or MONTHLY_RECORDS.")
