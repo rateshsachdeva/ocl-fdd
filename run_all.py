@@ -29,7 +29,6 @@ def main() -> int:
     except (FileNotFoundError, ValueError, SemanticHandoffError) as error:
         print(f"OCL stopped safely: {error}")
         return 2
-
     print(f"Part 1 state: {result.state}")
     print(f"Input review: {result.input_review}")
     if result.handoff_draft:
@@ -48,15 +47,13 @@ def main() -> int:
         blocking = [control.control_id for control in result.controls if control.status.value in {"FAIL", "REVIEW_REQUIRED"}]
         print("Blocking controls: " + ", ".join(blocking))
         return 2
-    if not result.databook or not result.build:
+    if not result.databook or not result.build or not result.handoff:
         return 2
-
     print(f"Databook: {result.databook}")
     if args.part1_only:
         print("Part 1 databook: READY")
         return 0
-
-    analysis = run_analysis(result.build.records, result.databook)
+    analysis = run_analysis(result.build.records, result.databook, package=result.package, handoff=result.handoff)
     print(f"Part 2 findings: {len(analysis.findings)}")
     questions = run_qanda(analysis, result.databook)
     print(f"Part 3 management questions: {len(questions)}")
