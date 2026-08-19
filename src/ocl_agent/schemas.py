@@ -83,6 +83,9 @@ class Finding:
     title: str
     text: str
     evidence_references: tuple[str, ...] = ()
+    finding_type: str = "OBSERVATION"
+    metrics: dict[str, Any] = field(default_factory=dict)
+    priority: str = "MEDIUM"
 
 
 @dataclass(frozen=True)
@@ -91,3 +94,22 @@ class ManagementQuestion:
     question: str
     rationale: str
     evidence_references: tuple[str, ...] = ()
+    linked_finding_id: str | None = None
+    priority: str = "MEDIUM"
+
+
+@dataclass(frozen=True)
+class AnalysisTable:
+    key: str
+    title: str
+    headers: tuple[str, ...]
+    rows: tuple[tuple[Any, ...], ...]
+
+
+@dataclass(frozen=True)
+class AnalysisResult:
+    findings: tuple[Finding, ...]
+    tables: tuple[AnalysisTable, ...]
+    annual_periods: tuple[str, ...] = ()
+    monthly_periods: tuple[str, ...] = ()
+    latest_annual_period: str | None = None
