@@ -2,17 +2,20 @@
 
 The objective is to let a complete skill run finish without forcing the user to
 maintain config files before first use. Existing human-reviewed rows always win.
-Defaults are deliberately conservative and remain visible in Mapping/Checks.
+Autonomous rows carry package provenance and are refreshed when the source
+package changes so stale engagement judgments cannot silently leak forward.
 """
 from __future__ import annotations
 
 import csv
+import json
 import re
 from pathlib import Path
 
-SCOPE_HEADERS = ["source_label", "source_code", "entity", "scope", "review_status", "reason"]
-MAPPING_HEADERS = ["source_label", "source_code", "entity", "category", "parent_category", "review_status", "reason"]
-WC_HEADERS = ["source_label", "source_code", "entity", "management_view", "fdd_view", "normality", "review_status", "reason"]
+ORIGIN = "INTEGRATED_AUTONOMOUS"
+SCOPE_HEADERS = ["source_label", "source_code", "entity", "scope", "review_status", "reason", "decision_origin", "package_id"]
+MAPPING_HEADERS = ["source_label", "source_code", "entity", "category", "parent_category", "review_status", "reason", "decision_origin", "package_id"]
+WC_HEADERS = ["source_label", "source_code", "entity", "management_view", "fdd_view", "normality", "review_status", "reason", "decision_origin", "package_id"]
 
 TRADE_PAYABLE_TERMS = (
     "trade payable", "trade creditor", "accounts payable", "account payable", "supplier payable", "vendor payable",
@@ -34,11 +37,14 @@ def ensure_autonomous_judgments(data_prep_output: Path, config_dir: Path) -> dic
     data_prep_output = Path(data_prep_output)
     config_dir = Path(config_dir)
     config_dir.mkdir(parents=True, exist_ok=True)
+    package_id = _package_id(data_prep_output)
     keys = _source_keys(data_prep_output)
 
-    scope_rows = _read(config_dir / "judgment_scope.csv")
-    mapping_rows = _read(config_dir / "mapping.csv")
-    wc_rows = _read(config_dir / "judgment_wc_debt.csv")
+    # Preserve human rows and same-package autonomous rows; discard stale
+    # autonomous defaults from prior source packages.
+    scope_rows = _retain(_read(config_dir / "judgment_scope.csv"), package_id)
+    mapping_rows = _retain(_read(config_dir / "mapping.csv"), package_id)
+    wc_rows = _retain(_read(config_dir / "judgment_wc_debt.csv"), package_id)
     scope_index = {_key(row): row for row in scope_rows if row.get("source_label")}
     mapping_index = {_key(row): row for row in mapping_rows if row.get("source_label")}
     wc_index = {_key(row): row for row in wc_rows if row.get("source_label")}
@@ -55,6 +61,8 @@ def ensure_autonomous_judgments(data_prep_output: Path, config_dir: Path) -> dic
                 "scope": scope,
                 "review_status": "REVIEWED",
                 "reason": "Autonomous initial scope based on the current source schedule; visible and overrideable in config/Mapping.",
+                "decision_origin": ORIGIN,
+                "package_id": package_id,
             }
             scope_rows.append(row)
             scope_index[key] = row
@@ -70,6 +78,8 @@ def ensure_autonomous_judgments(data_prep_output: Path, config_dir: Path) -> dic
                 "parent_category": _parent_for(source_label) if category else "",
                 "review_status": "REVIEWED",
                 "reason": "Source-present category retained dynamically; no legacy category list imposed.",
+                "decision_origin": ORIGIN,
+                "package_id": package_id,
             }
             mapping_rows.append(row)
             mapping_index[key] = row
@@ -85,6 +95,8 @@ def ensure_autonomous_judgments(data_prep_output: Path, config_dir: Path) -> dic
                 "normality": "normal" if scope == "IN_SCOPE" else "",
                 "review_status": "REVIEWED",
                 "reason": "Conservative autonomous first-pass classification; no debt-like or one-off treatment is invented without direct evidence.",
+                "decision_origin": ORIGIN,
+                "package_id": package_id,
             }
             wc_rows.append(row)
             wc_index[key] = row
@@ -94,6 +106,27 @@ def ensure_autonomous_judgments(data_prep_output: Path, config_dir: Path) -> dic
     _write(config_dir / "mapping.csv", MAPPING_HEADERS, mapping_rows)
     _write(config_dir / "judgment_wc_debt.csv", WC_HEADERS, wc_rows)
     return added
+
+
+def _retain(rows: list[dict[str, str]], package_id: str) -> list[dict[str, str]]:
+    retained = []
+    for row in rows:
+        origin = str(row.get("decision_origin", "") or "").strip()
+        bound_package = str(row.get("package_id", "") or "").strip()
+        if origin == ORIGIN and bound_package and bound_package != package_id:
+            continue
+        retained.append(row)
+    return retained
+
+
+def _package_id(root: Path) -> str:
+    for name, key in (("databook_metadata.json", "workflow_run_id"), ("execution_manifest.json", "execution_id")):
+        path = root / name
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and payload.get(key):
+                return str(payload[key])
+    return root.name
 
 
 def _source_keys(root: Path) -> list[tuple[str, str, str]]:
