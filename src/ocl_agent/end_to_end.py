@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,7 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
     """
     warnings: tuple[str, ...] = ()
     runtime_work = paths.output.parent / "work"
+    runtime_config = _prepare_runtime_config(paths.config, runtime_work / "active_config")
     if data_prep_output is None:
         prep_root = runtime_work / "data_prep" / "latest"
         prep_result = _run_embedded_data_prep(paths.root, paths.source, prep_root)
@@ -47,9 +49,12 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
     else:
         data_prep_output = Path(data_prep_output).resolve()
 
-    ensure_semantic_handoff(data_prep_output, paths.config)
-    ensure_autonomous_judgments(data_prep_output, paths.config)
-    part1 = run_part1(data_prep_output, paths.config, paths.output)
+    # Package-specific/autonomous artifacts live in work/active_config. The
+    # tracked config/ directory remains a human-owned baseline and is not dirtied
+    # by ordinary runs.
+    ensure_semantic_handoff(data_prep_output, runtime_config)
+    ensure_autonomous_judgments(data_prep_output, runtime_config)
+    part1 = run_part1(data_prep_output, runtime_config, paths.output)
     if part1.state != "DATABOOK_READY" or not part1.databook or not part1.build:
         return EndToEndResult(part1.state, data_prep_output, part1=part1, warnings=warnings)
 
@@ -75,6 +80,20 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
         qa=qa,
         warnings=warnings,
     )
+
+
+def _prepare_runtime_config(human_config: Path, runtime_config: Path) -> Path:
+    human_config = Path(human_config)
+    runtime_config = Path(runtime_config)
+    if runtime_config.exists():
+        shutil.rmtree(runtime_config)
+    runtime_config.mkdir(parents=True, exist_ok=True)
+    if not human_config.exists():
+        return runtime_config
+    for path in human_config.iterdir():
+        if path.is_file() and path.name != ".gitkeep":
+            shutil.copy2(path, runtime_config / path.name)
+    return runtime_config
 
 
 def _run_embedded_data_prep(repo_root: Path, source_dir: Path, output_dir: Path):
