@@ -1,15 +1,21 @@
-"""Single-repository end-to-end OCL workflow."""
+"""Single-repository end-to-end OCL workflow.
+
+Raw Excel is owned by the full fdd-data-preparation workflow.  OCL starts only
+from its published standardized package.  AI-host checkpoints are surfaced as
+explicit coordination instructions rather than replaced with layout-specific
+Python guesses.
+"""
 from __future__ import annotations
 
-import importlib
+import json
+import re
 import shutil
-import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from ocl_agent.auto_judgments import ensure_autonomous_judgments
-from ocl_agent.auto_semantics import ensure_semantic_handoff
 from ocl_agent.config import RepoPaths
+from ocl_agent.data_prep_bridge import run_full_data_preparation
 from ocl_agent.final_qa import validate_final_databook
 from ocl_agent.part1_databook.run import Part1Result, run_part1
 from ocl_agent.part2_analysis.run import run_analysis
@@ -29,40 +35,69 @@ class EndToEndResult:
     questions: int = 0
     qa: dict | None = None
     warnings: tuple[str, ...] = ()
+    coordination: dict[str, Any] = field(default_factory=dict)
+    runtime_config: Path | None = None
 
 
-def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, part1_only: bool = False, skip_report: bool = False) -> EndToEndResult:
-    """Run raw source -> data prep -> OCL databook -> analysis/Q&A/report/QA.
+def run_end_to_end(
+    paths: RepoPaths,
+    *,
+    data_prep_output: Path | None = None,
+    part1_only: bool = False,
+    skip_report: bool = False,
+) -> EndToEndResult:
+    """Advance raw source -> full data prep -> OCL -> final deliverables.
 
-    When `data_prep_output` is supplied, the upstream step is skipped for
-    backwards compatibility. Otherwise raw workbooks are read from the single
-    top-level `references/source/` folder.
+    Normal use passes no ``data_prep_output``.  The full embedded
+    fdd-data-preparation state machine is then advanced.  If it requests an
+    AI-host or human checkpoint, this function returns that coordination state.
+    An existing published standardized package can still be supplied explicitly
+    for compatibility and testing.
     """
-    warnings: tuple[str, ...] = ()
     runtime_work = paths.output.parent / "work"
-    runtime_config = _prepare_runtime_config(paths.config, runtime_work / "active_config")
+    warnings: list[str] = []
+
     if data_prep_output is None:
-        prep_root = runtime_work / "data_prep" / "latest"
-        prep_result = _run_embedded_data_prep(paths.root, paths.source, prep_root)
-        data_prep_output = prep_result.output_dir
-        warnings = tuple(prep_result.warnings)
+        prep = run_full_data_preparation(paths.root, paths.source, runtime_work / "data_prep")
+        warnings.extend(prep.warnings)
+        if not prep.ready:
+            return EndToEndResult(
+                prep.state,
+                warnings=tuple(warnings),
+                coordination=_normalize_coordination(prep.coordination, prep.raw_status),
+            )
+        data_prep_output = prep.standardized_output
     else:
         data_prep_output = Path(data_prep_output).resolve()
 
-    # Package-specific/autonomous artifacts live in work/active_config. The
-    # tracked config/ directory remains a human-owned baseline and is not dirtied
-    # by ordinary runs.
-    ensure_semantic_handoff(data_prep_output, runtime_config)
-    ensure_autonomous_judgments(data_prep_output, runtime_config)
+    assert data_prep_output is not None
+    package_id = _package_id(data_prep_output)
+    runtime_config = _prepare_package_config(paths.config, runtime_work / "ocl_config" / _safe_name(package_id))
+
     part1 = run_part1(data_prep_output, runtime_config, paths.output)
     if part1.state != "DATABOOK_READY" or not part1.databook or not part1.build:
-        return EndToEndResult(part1.state, data_prep_output, part1=part1, warnings=warnings)
+        return EndToEndResult(
+            part1.state,
+            data_prep_output,
+            part1=part1,
+            warnings=tuple(warnings),
+            coordination=_ocl_coordination(part1, runtime_config, paths.root),
+            runtime_config=runtime_config,
+        )
 
     qa_path = runtime_work / "final_qa.json"
     if part1_only:
         apply_workbook_style(part1.databook)
         qa = validate_final_databook(part1.databook, qa_path)
-        return EndToEndResult("DATABOOK_READY", data_prep_output, part1=part1, databook=part1.databook, qa=qa, warnings=warnings)
+        return EndToEndResult(
+            "DATABOOK_READY",
+            data_prep_output,
+            part1=part1,
+            databook=part1.databook,
+            qa=qa,
+            warnings=tuple(warnings),
+            runtime_config=runtime_config,
+        )
 
     analysis = run_analysis(part1.build.records, part1.databook, package=part1.package, handoff=part1.handoff)
     questions = run_qanda(analysis, part1.databook)
@@ -78,30 +113,106 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
         findings=len(analysis.findings),
         questions=len(questions),
         qa=qa,
-        warnings=warnings,
+        warnings=tuple(warnings),
+        runtime_config=runtime_config,
     )
 
 
-def _prepare_runtime_config(human_config: Path, runtime_config: Path) -> Path:
+def _normalize_coordination(coordination: dict[str, Any], raw_status: dict[str, Any]) -> dict[str, Any]:
+    result = dict(coordination)
+    result.setdefault("source", "fdd-data-preparation")
+    result.setdefault("must_continue", result.get("next_actor") == "AI_HOST")
+    result.setdefault("resume_command", "python run_all.py")
+    if raw_status.get("run_id"):
+        result.setdefault("run_id", raw_status["run_id"])
+    if raw_status.get("run_directory"):
+        result.setdefault("run_directory", raw_status["run_directory"])
+    return result
+
+
+def _ocl_coordination(part1: Part1Result, runtime_config: Path, repo_root: Path) -> dict[str, Any]:
+    instruction = repo_root / "src" / "ocl_agent" / "llm" / "README.md"
+    if part1.state == "AWAITING_SEMANTIC_HANDOFF":
+        return {
+            "source": "ocl_agent",
+            "next_actor": "AI_HOST",
+            "next_action": "CONFIRM_OCL_SEMANTIC_HANDOFF",
+            "relevant_instruction": str(instruction),
+            "handoff_path": str(part1.handoff_draft) if part1.handoff_draft else None,
+            "required_artifacts": [str(runtime_config / "semantic_handoff.json")],
+            "must_continue": True,
+            "resume_command": "python run_all.py",
+            "message": "Interpret the published standardized datasets for OCL roles; do not reinterpret raw Excel or calculate financial amounts with AI.",
+        }
+    if part1.state == "AWAITING_JUDGMENT_REVIEW":
+        return {
+            "source": "ocl_agent",
+            "next_actor": "HUMAN",
+            "next_action": "REVIEW_OCL_JUDGMENTS",
+            "relevant_instruction": str(instruction),
+            "review_context": str(part1.review_context) if part1.review_context else None,
+            "review_workbook": str(part1.semantic_review) if part1.semantic_review else None,
+            "runtime_config": str(runtime_config),
+            "must_continue": False,
+            "resume_command": "python run_all.py",
+            "message": "Scope, mapping/hierarchy, WC/debt-like and normal/one-off judgments require reviewed decisions. Existing human config remains authoritative.",
+        }
+    if part1.state == "AWAITING_CONTROL_ALIGNMENT":
+        blocking = [
+            control.control_id
+            for control in part1.controls
+            if control.status.value in {"FAIL", "REVIEW_REQUIRED"}
+        ]
+        return {
+            "source": "ocl_agent",
+            "next_actor": "AI_HOST",
+            "next_action": "INVESTIGATE_OCL_CONTROL_ALIGNMENT",
+            "relevant_instruction": str(instruction),
+            "review_context": str(part1.review_context) if part1.review_context else None,
+            "review_workbook": str(part1.semantic_review) if part1.semantic_review else None,
+            "blocking_controls": blocking,
+            "runtime_config": str(runtime_config),
+            "must_continue": True,
+            "resume_command": "python run_all.py",
+            "message": "Investigate source-backed alignment or genuine breaks. Never solve a control with a plug.",
+        }
+    return {
+        "source": "ocl_agent",
+        "next_actor": "HUMAN",
+        "next_action": "REVIEW_UNEXPECTED_STATE",
+        "must_continue": False,
+        "resume_command": "python run_all.py",
+        "message": f"OCL Part 1 returned unexpected state {part1.state}.",
+    }
+
+
+def _prepare_package_config(human_config: Path, runtime_config: Path) -> Path:
+    """Seed package-specific runtime config once; preserve later AI/human review artifacts."""
     human_config = Path(human_config)
     runtime_config = Path(runtime_config)
-    if runtime_config.exists():
-        shutil.rmtree(runtime_config)
     runtime_config.mkdir(parents=True, exist_ok=True)
     if not human_config.exists():
         return runtime_config
     for path in human_config.iterdir():
-        if path.is_file() and path.name != ".gitkeep":
-            shutil.copy2(path, runtime_config / path.name)
+        if not path.is_file() or path.name in {".gitkeep", "semantic_handoff.json"}:
+            continue
+        destination = runtime_config / path.name
+        if not destination.exists():
+            shutil.copy2(path, destination)
     return runtime_config
 
 
-def _run_embedded_data_prep(repo_root: Path, source_dir: Path, output_dir: Path):
-    embedded_src = repo_root / "fdd-data-preparation" / "src"
-    if not embedded_src.is_dir():
-        raise FileNotFoundError("Embedded fdd-data-preparation runtime is missing from the repository.")
-    text = str(embedded_src)
-    if text not in sys.path:
-        sys.path.insert(0, text)
-    module = importlib.import_module("fdd_data")
-    return module.prepare_source_package(source_dir, output_dir)
+def _package_id(data_prep_output: Path) -> str:
+    for filename, key in (("execution_manifest.json", "execution_id"), ("databook_metadata.json", "workflow_run_id")):
+        path = Path(data_prep_output) / filename
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and payload.get(key):
+            return str(payload[key])
+    return Path(data_prep_output).resolve().name
+
+
+def _safe_name(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    return safe[:100] or "package"

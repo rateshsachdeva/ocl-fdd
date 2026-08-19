@@ -26,6 +26,7 @@ references/other/*
 output/*
 !output/.gitkeep
 work/
+fdd-data-preparation/runtime/
 
 # Package-specific reviewed handoff
 config/semantic_handoff.json

@@ -1,55 +1,116 @@
-# AI-host boundary and workflow
+# OCL AI-host interpretation workflow
 
-This folder contains vendor-neutral instructions for the AI host. Do not add OpenAI, Anthropic, Azure OpenAI, Copilot or Claude API calls to the deterministic core.
+This folder defines the **vendor-neutral reasoning contract** for the OCL-specific layer.
 
-## Responsibility split
+The full `fdd-data-preparation` workflow has already handled raw Excel structure before this layer starts. Therefore the OCL AI host works from the **published standardized package**, its metadata/lineage, and OCL review artifacts. It must not reparse raw client workbooks or create another source-normalization layer.
 
-**Python owns:** reading standardized rows, amounts, transformations, formulas, controls, reconciliation, workbook/PPT writing.
+## Ownership boundary
 
-**The AI host owns:** contextual interpretation of current evidence, proposed semantic bindings, proposed OCL judgments, and optional refinement of finding/question wording.
+### Full fdd-data-preparation already owns
 
-**Human-reviewed config owns final accounting/FDD meaning.** Existing `REVIEWED` decisions are authoritative.
+- source discovery and workbook/region profiling;
+- contextual dataset understanding;
+- Dataset Map and Processing Plan;
+- deterministic reshape/union/unpivot execution;
+- completeness proof;
+- row/field lineage and metadata publication.
 
-## Evidence hierarchy
+### OCL AI host owns contextual OCL interpretation
 
-Use, in order:
+The AI host may interpret:
 
-1. current standardized data and `Source_Record_ID` lineage;
-2. current `databook_metadata.json`, execution manifest and upstream dataset understanding;
-3. current field context and bounded samples;
-4. current human-reviewed OCL config;
-5. prior knowledge only as supporting evidence.
+- which published logical dataset(s) contain OCL/current-liability records;
+- which dataset(s) are monthly, movements, TB/control, revenue or payroll context;
+- semantic field roles within those published datasets;
+- OCL scope meaning;
+- source-present category/hierarchy proposals;
+- management and FDD WC/debt-like view proposals;
+- normal/one-off proposals;
+- evidence-based wording of findings and management questions.
 
-Never infer meaning from a heading alone. Never create a category because a prior engagement used it.
+### Deterministic Python owns
 
-## When Part 1 says `AWAITING_SEMANTIC_HANDOFF`
+- financial amounts and arithmetic;
+- source-linked workbook formulas;
+- record construction from explicit field bindings;
+- controls and reconciliation;
+- roll-forward math;
+- monthly/annual tie checks;
+- final workbook rendering and QA.
 
-1. Read `output/semantic_handoff_draft.json` and `output/OCL_Input_Review.xlsx`.
-2. Read current upstream metadata and inspect only targeted standardized rows needed to interpret ambiguous fields/datasets.
-3. Assign each standardized dataset one or more justified usages: `OCL_RECORDS`, `MONTHLY_RECORDS`, `MOVEMENT_RECORDS`, `TB_CONTROL`, `REVENUE_CONTEXT`, `PAYROLL_CONTEXT`, or `IGNORE`.
-4. Confirm exact field roles. For OCL/monthly: `source_record_id`, `period`, `amount`, `source_label`; add source code/entity/currency where present. Movement records also require `movement_type`.
-5. Add `monthly_to_annual` only from supported year-end relationships.
-6. If movement data exists, define exact `movement_rules` from the current source semantics. Each source movement label must have an explicit `OPENING`, `FLOW` or `CLOSING` role and multiplier. Never infer sign from the word alone. Add explicit `movement_to_annual` alignments.
-7. If period completeness should be tested, add explicit `expected_annual_periods` / `expected_monthly_periods`. Do not manufacture a sequence from labels whose fiscal/calendar semantics are unclear.
-8. Bind TB/scope controls using exact dataset, period field, amount field and exact filter values. Never fuzzy-match a control row.
-9. For revenue/payroll context, bind period and amount only when those fields are genuinely understood.
-10. Save as `config/semantic_handoff.json` with `status: CONFIRMED`, then rerun.
+## Coordination rule
 
-## When Part 1 says `AWAITING_JUDGMENT_REVIEW`
+`python run_all.py` returns a `Workflow coordination` object whenever OCL reasoning or review is required.
 
-1. Read `output/OCL_Review_Context.json`; use `OCL_Stage2_Review.xlsx` where useful.
-2. Preserve every existing reviewed config row.
-3. Determine scope before category treatment.
-4. Add only categories/hierarchy that actually occur in current data.
-5. Use source label + source code + entity when the same label has different meanings at different grains.
-6. Canonical WC/debt values are `working_capital`, `debt_like`, `neither`; normality values are `normal`, `one_off`.
-7. AI-created decisions remain `PROPOSED` until explicitly reviewed. Do not silently promote proposals to `REVIEWED`.
-8. Trade payables, financing and outside-OCL rows remain explicit scope outcomes rather than being dropped.
+When:
 
-## When Part 1 says `AWAITING_CONTROL_ALIGNMENT`
+```json
+{"next_actor": "AI_HOST", "must_continue": true}
+```
 
-Read the failing/review-required controls in the review workbook/context. Resolve only by supplying better source-backed evidence, exact alignment or correcting an actual classification/data issue. Never insert a balancing value or widen the tolerance to make a check pass.
+an agent host should continue automatically:
 
-## Parts 2–4
+1. read this file plus the referenced `handoff_path`, `review_context`, `review_workbook`, upstream `databook_metadata.json`, `execution_manifest.json`, `lineage.csv` and relevant standardized CSV samples;
+2. create/update the requested artifact in the package-specific runtime config directory printed by the runner;
+3. do not overwrite an existing reviewed human decision;
+4. rerun `python run_all.py`;
+5. repeat until `READY`, a genuine `HUMAN` checkpoint or `FAILED`.
 
-Once `DATABOOK_READY`, deterministic Python already calculates evidence, drafts focused questions and renders outputs. The AI host may improve prose if asked, but must preserve the numeric evidence and the management-question discipline in `SKILL.md`.
+## Semantic handoff
+
+When the state is `AWAITING_SEMANTIC_HANDOFF`, create the exact runtime-config artifact identified in `required_artifacts`, normally `semantic_handoff.json`, with `status: CONFIRMED`.
+
+Allowed dataset usages are:
+
+- `OCL_RECORDS`
+- `MONTHLY_RECORDS`
+- `MOVEMENT_RECORDS`
+- `TB_CONTROL`
+- `REVENUE_CONTEXT`
+- `PAYROLL_CONTEXT`
+- `IGNORE`
+
+For OCL/monthly records bind, using actual published fields:
+
+- `source_record_id`
+- `period`
+- `amount`
+- `source_label`
+
+Optional roles include `source_code`, `entity`, `currency` and relevant dimensions.
+
+Movement records also require `movement_type`. Use exact source movement values and explicit roles/multipliers. Do not infer a sign convention from a word when source evidence contradicts it.
+
+Bind TB/scope controls only to exact published datasets/fields/filters that the evidence supports. Do not keyword-search for a convenient total and call it a control.
+
+Use upstream Dataset Map / metadata as strong evidence. Never infer field meaning from a heading alone when samples, context, lineage or upstream interpretation are available.
+
+## OCL judgment review
+
+Scope, category/hierarchy, WC/debt-like and normality are reviewable financial-due-diligence judgments.
+
+- Existing reviewed config is authoritative.
+- AI may prepare evidence-based proposals when the coordination state allows it.
+- Do not mark an unsupported judgment as reviewed simply to force the pipeline forward.
+- Trade payable and financing items may remain in the reconciled population while being excluded from OCL.
+- Categories are source-present and dynamic; do not impose a legacy category list.
+- If a genuine residual within a parent cannot be assigned to a supported child, surface it explicitly rather than using a hidden plug.
+
+A `HUMAN` checkpoint is intentional where reviewed judgment is required.
+
+## Findings and management questions
+
+Use only the reconciled OCL model.
+
+Findings should state the numeric observation first and avoid fabricated explanations. Management questions should arise from actual findings and request one focused operational fact/evidence item. Do not ask management to make deal-treatment conclusions such as whether an item is debt-like or a purchase-price adjustment.
+
+## Prohibited shortcuts
+
+Do not:
+
+- re-open raw Excel to create a second normalization scheme;
+- add client-specific heading aliases to OCL production code;
+- invent source amounts, categories or balancing figures;
+- calculate financial outputs in the AI prompt and hard-code them into Excel;
+- bypass a failed control;
+- overwrite reviewed human config.
