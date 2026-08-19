@@ -27,6 +27,9 @@ output/*
 !output/.gitkeep
 work/
 
+# Package-specific reviewed handoff
+config/semantic_handoff.json
+
 # Office temporary files
 ~$*.xlsx
 ~$*.xlsm

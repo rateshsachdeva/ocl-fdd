@@ -1,11 +1,17 @@
-OCL FDD — START HERE
+OCL FDD - START HERE
+====================
 
-1. Create a Python 3.11+ virtual environment.
-2. Install: pip install -r requirements.txt
-3. Run tests: python -m pytest
-4. Obtain an APPROVED standardized publication from fdd-data-preparation.
-5. Validate the Part 1 handoff:
-   python run_all.py --data-prep-output <path-to-output/latest> --foundation-only
+1. Use an approved output from fdd-data-preparation.
+2. Run:
+       python run_all.py --data-prep-output <path-to-output/latest>
+   If the repos are side-by-side, try:
+       python run_all.py
+3. Follow the state printed by the runner:
+   - AWAITING_SEMANTIC_HANDOFF
+   - AWAITING_JUDGMENT_REVIEW
+   - AWAITING_CONTROL_ALIGNMENT
+   - DATABOOK_READY
+4. Do not bypass failed controls or invent balancing values.
+5. Final Part 1 output is output/OCL_Databook.xlsx.
 
-The repository currently contains the foundation milestone.  Full semantic
-adaptation and Parts 2-4 will be implemented in subsequent reviewed stages.
+For an AI coding host, read SKILL.md and src/ocl_agent/llm/README.md before changing config.
