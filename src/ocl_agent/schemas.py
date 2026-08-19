@@ -42,7 +42,6 @@ class SourceReference:
 
 @dataclass(frozen=True)
 class OCLJudgment:
-    # Keep the original positional field order for backwards compatibility.
     source_label: str
     scope: Scope
     category: str | None = None
@@ -64,6 +63,22 @@ class OCLRecord:
     source_label: str
     judgment: OCLJudgment
     dimensions: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MovementRecord:
+    source: SourceReference
+    period: str
+    amount: Decimal
+    source_label: str
+    movement_role: str
+    multiplier: Decimal
+    judgment: OCLJudgment
+    dimensions: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def signed_amount(self) -> Decimal:
+        return self.amount * self.multiplier
 
 
 @dataclass(frozen=True)
