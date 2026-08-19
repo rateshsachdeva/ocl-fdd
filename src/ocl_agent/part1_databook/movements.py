@@ -1,19 +1,9 @@
 """Explicit movement support for OCL roll-forward schedules.
 
-Movement arithmetic is never guessed.  The package-specific semantic handoff may
-include a `movement_rules` object on a MOVEMENT_RECORDS dataset.  Each exact
-source movement value maps to a role and multiplier, for example:
-
-    "movement_rules": {
-      "Opening": {"role": "OPENING", "multiplier": 1},
-      "Additions": {"role": "FLOW", "multiplier": 1},
-      "Utilisation": {"role": "FLOW", "multiplier": -1},
-      "Closing": {"role": "CLOSING", "multiplier": 1}
-    }
-
-The top-level `movement_to_annual` list explicitly aligns each movement period to
-an annual/listing period.  Without those reviewed rules, movement data remains a
-visible review requirement rather than being interpreted heuristically.
+Movement arithmetic is never guessed. The package-specific semantic handoff may
+include a `movement_rules` object on a MOVEMENT_RECORDS dataset. Each exact
+source movement value maps to a role and multiplier. The top-level
+`movement_to_annual` list explicitly aligns movement periods to annual periods.
 """
 from __future__ import annotations
 
@@ -55,10 +45,7 @@ def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judg
         return MovementBuildResult((), (), ())
     payload = json.loads(Path(handoff_path).read_text(encoding="utf-8"))
     raw_datasets = {str(item.get("file")): item for item in payload.get("datasets", []) if isinstance(item, dict)}
-    alignments = tuple(
-        MovementAlignment(str(item.get("movement_period", "")).strip(), str(item.get("annual_period", "")).strip())
-        for item in payload.get("movement_to_annual", []) if isinstance(item, dict)
-    )
+    alignments = tuple(MovementAlignment(str(item.get("movement_period", "")).strip(), str(item.get("annual_period", "")).strip()) for item in payload.get("movement_to_annual", []) if isinstance(item, dict))
     issues: list[str] = []
     records: list[MovementRecord] = []
     for binding in movement_bindings:
@@ -70,8 +57,7 @@ def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judg
         normalized_rules: dict[str, tuple[str, Decimal]] = {}
         for source_value, rule in rules.items():
             if isinstance(rule, str):
-                role = rule.strip().upper()
-                multiplier = Decimal("1")
+                role, multiplier = rule.strip().upper(), Decimal("1")
             elif isinstance(rule, dict):
                 role = str(rule.get("role", "")).strip().upper()
                 try:
@@ -124,15 +110,7 @@ def rollforward_control(movements: tuple[MovementRecord, ...], annual_records: t
         return ControlResult("chk_rollforward", CheckStatus.NOT_APPLICABLE, message="No movement dataset is available.")
     if issues:
         return ControlResult("chk_rollforward", CheckStatus.REVIEW_REQUIRED, message="Movement data requires explicit reviewed rules/alignment before roll-forward publication.", evidence={"issues": list(issues)[:100]})
-    grouped: dict[tuple[str, str], dict[str, Decimal]] = {}
-    for row in movements:
-        if row.judgment.scope != Scope.IN_SCOPE or not row.judgment.category:
-            continue
-        bucket = grouped.setdefault((row.period, row.judgment.category), {"OPENING": Decimal("0"), "FLOW": Decimal("0"), "CLOSING": Decimal("0")})
-        if row.movement_role == "FLOW":
-            bucket["FLOW"] += row.signed_amount
-        else:
-            bucket[row.movement_role] += row.amount * row.multiplier
+    grouped = _group_movements(movements)
     breaks: list[dict[str, str]] = []
     for (period, category), values in sorted(grouped.items()):
         expected_closing = values["OPENING"] + values["FLOW"]
@@ -143,7 +121,7 @@ def rollforward_control(movements: tuple[MovementRecord, ...], annual_records: t
     for row in annual_records:
         if row.dimensions.get("record_usage") == "MONTHLY_RECORDS" or row.judgment.scope != Scope.IN_SCOPE or not row.judgment.category:
             continue
-        annual[(row.period, row.judgment.category)] = annual.get((row.period, row.judgment.category), Decimal("0")) + row.amount
+        annual[(row.period, str(row.judgment.category))] = annual.get((row.period, str(row.judgment.category)), Decimal("0")) + row.amount
     for alignment in alignments:
         categories = {category for period, category in grouped if period == alignment.movement_period}
         for category in sorted(categories):
@@ -159,12 +137,24 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
     if not movements:
         return
     workbook = load_workbook(databook_path)
-    if "Roll-forward" in workbook.sheetnames:
-        del workbook["Roll-forward"]
-    sheet = workbook.create_sheet("Roll-forward")
-    periods = sorted({row.period for row in movements})
-    categories = sorted({str(row.judgment.category) for row in movements if row.judgment.scope == Scope.IN_SCOPE and row.judgment.category})
+    sheet = workbook["Roll-forward"] if "Roll-forward" in workbook.sheetnames else workbook.create_sheet("Roll-forward")
+    if sheet.max_row:
+        sheet.delete_rows(1, sheet.max_row)
+    grouped = _group_movements(movements)
     sheet.append(["Category", "Period", "Opening", "Net movement", "Closing", "Calculated closing", "Difference"])
+    for (period, category), values in sorted(grouped.items()):
+        row_number = sheet.max_row + 1
+        sheet.append([category, period, values["OPENING"], values["FLOW"], values["CLOSING"], f"=C{row_number}+D{row_number}", f"=F{row_number}-E{row_number}"])
+    sheet.freeze_panes = "A2"
+    sheet.sheet_view.showGridLines = False
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for column in range(1, sheet.max_column + 1):
+        sheet.column_dimensions[get_column_letter(column)].width = 18
+    workbook.save(databook_path)
+
+
+def _group_movements(movements: tuple[MovementRecord, ...]) -> dict[tuple[str, str], dict[str, Decimal]]:
     grouped: dict[tuple[str, str], dict[str, Decimal]] = {}
     for row in movements:
         if row.judgment.scope != Scope.IN_SCOPE or not row.judgment.category:
@@ -173,17 +163,5 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
         if row.movement_role == "FLOW":
             bucket["FLOW"] += row.signed_amount
         else:
-            bucket[row.movement_role] += row.amount * row.multiplier
-    for period in periods:
-        for category in categories:
-            if (period, category) not in grouped:
-                continue
-            values = grouped[(period, category)]
-            sheet.append([category, period, values["OPENING"], values["FLOW"], values["CLOSING"], f"=C{sheet.max_row + 1}+D{sheet.max_row + 1}", f"=F{sheet.max_row + 1}-E{sheet.max_row + 1}"])
-    sheet.freeze_panes = "A2"
-    sheet.sheet_view.showGridLines = False
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    for column in range(1, sheet.max_column + 1):
-        sheet.column_dimensions[get_column_letter(column)].width = 18
-    workbook.save(databook_path)
+            bucket[row.movement_role] += row.signed_amount
+    return grouped
