@@ -21,33 +21,22 @@ def analyse_records(records: Iterable[OCLRecord]) -> AnalysisResult:
     rows = tuple(row for row in records if row.judgment.scope == Scope.IN_SCOPE and row.judgment.category)
     annual = tuple(row for row in rows if row.dimensions.get("record_usage") != MONTHLY_USAGE)
     monthly = tuple(row for row in rows if row.dimensions.get("record_usage") == MONTHLY_USAGE)
-
     annual_periods = tuple(sorted({row.period for row in annual}))
     monthly_periods = tuple(sorted({row.period for row in monthly}))
     categories = tuple(sorted({str(row.judgment.category) for row in rows if row.judgment.category}))
-
     annual_by_category = _matrix(annual, annual_periods, categories)
     monthly_by_category = _matrix(monthly, monthly_periods, categories)
     findings: list[Finding] = []
     tables: list[AnalysisTable] = []
-
     if annual_periods:
         tables.append(_annual_table(annual_by_category, annual_periods, categories))
         findings.extend(_annual_findings(annual_by_category, annual_periods, categories))
         findings.extend(_concentration_findings(annual_by_category, annual_periods, categories))
         findings.extend(_classification_findings(annual, annual_periods[-1]))
-
     if monthly_periods:
         tables.append(_monthly_summary_table(monthly_by_category, monthly_periods, categories))
         findings.extend(_monthly_variability_findings(monthly_by_category, monthly_periods, categories))
-
-    return AnalysisResult(
-        findings=tuple(_deduplicate(findings)),
-        tables=tuple(tables),
-        annual_periods=annual_periods,
-        monthly_periods=monthly_periods,
-        latest_annual_period=annual_periods[-1] if annual_periods else None,
-    )
+    return AnalysisResult(tuple(_deduplicate(findings)), tuple(tables), annual_periods, monthly_periods, annual_periods[-1] if annual_periods else None)
 
 
 def _matrix(records, periods, categories):
@@ -58,16 +47,12 @@ def _matrix(records, periods, categories):
 
 
 def _annual_table(matrix, periods, categories) -> AnalysisTable:
-    headers = ("Category", *periods)
-    table_rows = []
-    for category in categories:
-        table_rows.append((category, *(matrix[(category, period)] for period in periods)))
+    table_rows = [(category, *(matrix[(category, period)] for period in periods)) for category in categories]
     table_rows.append(("Total OCL", *(sum((matrix[(category, period)] for category in categories), Decimal("0")) for period in periods)))
-    return AnalysisTable("annual_balance", "Annual OCL balance by category", headers, tuple(table_rows))
+    return AnalysisTable("annual_balance", "Annual OCL balance by category", ("Category", *periods), tuple(table_rows))
 
 
 def _monthly_summary_table(matrix, periods, categories) -> AnalysisTable:
-    headers = ("Category", "Average", "Minimum", "Maximum", "Std_Dev", "Latest")
     table_rows = []
     for category in categories:
         values = [matrix[(category, period)] for period in periods]
@@ -76,7 +61,7 @@ def _monthly_summary_table(matrix, periods, categories) -> AnalysisTable:
         average = sum(values, Decimal("0")) / Decimal(len(values))
         std_dev = Decimal(str(pstdev([float(value) for value in values]))) if len(values) > 1 else Decimal("0")
         table_rows.append((category, average, min(values), max(values), std_dev, values[-1]))
-    return AnalysisTable("monthly_statistics", "Monthly OCL statistics by category", headers, tuple(table_rows))
+    return AnalysisTable("monthly_statistics", "Monthly OCL statistics by category", ("Category", "Average", "Minimum", "Maximum", "Std_Dev", "Latest"), tuple(table_rows))
 
 
 def _annual_findings(matrix, periods, categories) -> list[Finding]:
@@ -89,16 +74,7 @@ def _annual_findings(matrix, periods, categories) -> list[Finding]:
     pct = _safe_pct(change, previous_total)
     results: list[Finding] = []
     if change != 0:
-        results.append(Finding(
-            "F_TOTAL_CHANGE",
-            "OCL balance movement",
-            f"Total in-scope OCL moved from {previous_total:,.0f} in {previous} to {latest_total:,.0f} in {latest}, a change of {change:,.0f}" + (f" ({pct:.1f}%)." if pct is not None else "."),
-            (previous, latest),
-            "TOTAL_CHANGE",
-            {"previous_period": previous, "latest_period": latest, "previous": str(previous_total), "latest": str(latest_total), "change": str(change), "change_pct": pct},
-            "HIGH" if pct is not None and abs(pct) >= 20 else "MEDIUM",
-        ))
-
+        results.append(Finding("F_TOTAL_CHANGE", "OCL balance movement", f"Total in-scope OCL moved from {previous_total:,.0f} in {previous} to {latest_total:,.0f} in {latest}, a change of {change:,.0f}" + (f" ({pct:.1f}%)." if pct is not None else "."), (previous, latest), "TOTAL_CHANGE", {"previous_period": previous, "latest_period": latest, "previous": str(previous_total), "latest": str(latest_total), "change": str(change), "change_pct": pct}, "HIGH" if pct is not None and abs(pct) >= 20 else "MEDIUM"))
     latest_abs_total = abs(latest_total)
     for category in categories:
         old = matrix[(category, previous)]
@@ -107,15 +83,7 @@ def _annual_findings(matrix, periods, categories) -> list[Finding]:
         pct_change = _safe_pct(delta, old)
         material = latest_abs_total == 0 or abs(delta) >= latest_abs_total * Decimal("0.05")
         if delta != 0 and material and (pct_change is None or abs(pct_change) >= 20):
-            results.append(Finding(
-                f"F_MOVE_{_slug(category)}",
-                f"Movement in {category}",
-                f"{category} moved from {old:,.0f} in {previous} to {new:,.0f} in {latest}, a change of {delta:,.0f}" + (f" ({pct_change:.1f}%)." if pct_change is not None else "."),
-                (category, previous, latest),
-                "CATEGORY_MOVEMENT",
-                {"category": category, "previous_period": previous, "latest_period": latest, "previous": str(old), "latest": str(new), "change": str(delta), "change_pct": pct_change},
-                "HIGH" if pct_change is not None and abs(pct_change) >= 50 else "MEDIUM",
-            ))
+            results.append(Finding(f"F_MOVE_{_slug(category)}", f"Movement in {category}", f"{category} moved from {old:,.0f} in {previous} to {new:,.0f} in {latest}, a change of {delta:,.0f}" + (f" ({pct_change:.1f}%)." if pct_change is not None else "."), (category, previous, latest), "CATEGORY_MOVEMENT", {"category": category, "previous_period": previous, "latest_period": latest, "previous": str(old), "latest": str(new), "change": str(delta), "change_pct": pct_change}, "HIGH" if pct_change is not None and abs(pct_change) >= 50 else "MEDIUM"))
     return results
 
 
@@ -131,15 +99,7 @@ def _concentration_findings(matrix, periods, categories) -> list[Finding]:
     share = float((value / total) * Decimal("100"))
     if share < 35:
         return []
-    return [Finding(
-        "F_CONCENTRATION",
-        "OCL concentration",
-        f"{category} represents {share:.1f}% of absolute in-scope OCL at {latest}, making it the largest category in the closing balance.",
-        (category, latest),
-        "CONCENTRATION",
-        {"category": category, "period": latest, "share_pct": share, "absolute_value": str(value)},
-        "HIGH" if share >= 50 else "MEDIUM",
-    )]
+    return [Finding("F_CONCENTRATION", "OCL concentration", f"{category} represents {share:.1f}% of absolute in-scope OCL at {latest}, making it the largest category in the closing balance.", (category, latest), "CONCENTRATION", {"category": category, "period": latest, "share_pct": share, "absolute_value": str(value)}, "HIGH" if share >= 50 else "MEDIUM")]
 
 
 def _monthly_variability_findings(matrix, periods, categories) -> list[Finding]:
@@ -153,46 +113,23 @@ def _monthly_variability_findings(matrix, periods, categories) -> list[Finding]:
             continue
         std_dev = Decimal(str(pstdev([float(value) for value in values])))
         cv = float(std_dev / average_abs)
-        peak = max(values, key=lambda value: abs(value))
-        peak_period = periods[max(range(len(values)), key=lambda index: abs(values[index]))]
+        peak_index = max(range(len(values)), key=lambda index: abs(values[index]))
+        peak = values[peak_index]
+        peak_period = periods[peak_index]
         if cv >= 0.25:
-            results.append(Finding(
-                f"F_VOL_{_slug(category)}",
-                f"Monthly variability in {category}",
-                f"{category} shows material monthly variability across {len(periods)} available periods (coefficient of variation {cv:.2f}); the largest absolute month is {peak_period} at {peak:,.0f}.",
-                (category, peak_period),
-                "MONTHLY_VARIABILITY",
-                {"category": category, "period_count": len(periods), "coefficient_of_variation": cv, "peak_period": peak_period, "peak_value": str(peak)},
-                "MEDIUM",
-            ))
+            results.append(Finding(f"F_VOL_{_slug(category)}", f"Monthly variability in {category}", f"{category} shows material monthly variability across {len(periods)} available periods (coefficient of variation {cv:.2f}); the largest absolute month is {peak_period} at {peak:,.0f}.", (category, peak_period), "MONTHLY_VARIABILITY", {"category": category, "period_count": len(periods), "coefficient_of_variation": cv, "peak_period": peak_period, "peak_value": str(peak)}, "MEDIUM"))
     return results
 
 
 def _classification_findings(records, latest_period: str) -> list[Finding]:
     latest = [row for row in records if row.period == latest_period]
-    debt_like = sum((row.amount for row in latest if str(row.judgment.fdd_view or "").strip().casefold() in {"debt-like", "debt like", "debt"}), Decimal("0"))
-    one_off = sum((row.amount for row in latest if str(row.judgment.normality or "").strip().casefold() in {"one-off", "one off", "non-recurring", "non recurring"}), Decimal("0"))
+    debt_like = sum((row.amount for row in latest if str(row.judgment.fdd_view or "").strip().casefold() == "debt_like"), Decimal("0"))
+    one_off = sum((row.amount for row in latest if str(row.judgment.normality or "").strip().casefold() == "one_off"), Decimal("0"))
     results: list[Finding] = []
     if debt_like != 0:
-        results.append(Finding(
-            "F_DEBT_LIKE",
-            "Debt-like OCL classification",
-            f"Items classified as debt-like total {debt_like:,.0f} at {latest_period} based on the reviewed OCL judgment layer.",
-            (latest_period,),
-            "DEBT_LIKE",
-            {"period": latest_period, "amount": str(debt_like)},
-            "HIGH",
-        ))
+        results.append(Finding("F_DEBT_LIKE", "Debt-like OCL classification", f"Items classified as debt-like total {debt_like:,.0f} at {latest_period} based on the reviewed OCL judgment layer.", (latest_period,), "DEBT_LIKE", {"period": latest_period, "amount": str(debt_like)}, "HIGH"))
     if one_off != 0:
-        results.append(Finding(
-            "F_ONE_OFF",
-            "One-off OCL items",
-            f"Items classified as one-off/non-recurring total {one_off:,.0f} at {latest_period} based on reviewed normality judgments.",
-            (latest_period,),
-            "ONE_OFF",
-            {"period": latest_period, "amount": str(one_off)},
-            "MEDIUM",
-        ))
+        results.append(Finding("F_ONE_OFF", "One-off OCL items", f"Items classified as one-off/non-recurring total {one_off:,.0f} at {latest_period} based on reviewed normality judgments.", (latest_period,), "ONE_OFF", {"period": latest_period, "amount": str(one_off)}, "MEDIUM"))
     return results
 
 
@@ -211,8 +148,7 @@ def _deduplicate(findings: list[Finding]) -> list[Finding]:
     seen: set[str] = set()
     result: list[Finding] = []
     for finding in findings:
-        if finding.finding_id in seen:
-            continue
-        seen.add(finding.finding_id)
-        result.append(finding)
+        if finding.finding_id not in seen:
+            seen.add(finding.finding_id)
+            result.append(finding)
     return result
