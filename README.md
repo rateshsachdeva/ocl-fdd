@@ -2,68 +2,73 @@
 
 Dynamic, auditable financial due-diligence workflow for Other Current Liabilities.
 
-## User experience
+## Normal use
 
-Put the raw client Excel files in:
+Put raw client Excel files in:
 
 ```text
 references/source/
 ```
 
-Then run:
+Then run the root workflow:
 
 ```bash
 python run_all.py
 ```
 
-The repository now owns the complete flow:
+The architecture is:
 
 ```text
-references/source/
+raw client Excel
         ↓
-embedded fdd-data-preparation
+fdd-data-preparation
+  Python structural profiling
         ↓
-work/data_prep/latest/
-  standardized CSVs + metadata + manifest + lineage
+  AI dataset understanding + processing plan
         ↓
-automatic canonical semantic handoff
+  deterministic Python execution
+  + completeness + lineage
         ↓
-OCL scope + dynamic mapping/hierarchy + WC/debt/normality layer
+work/data_prep/output/latest/
+  standardized long/flat CSV(s)
+  + metadata + manifest + lineage
         ↓
-hard reconciliations
-        ↓
-dynamic formula-driven OCL_Databook.xlsx
-        ↓
-analysis + management questions
-        ↓
-PDF-aligned workbook styling + final deterministic QA
+OCL agent
+  AI semantic/OCL judgment where needed
+  + deterministic controls/rendering
         ↓
 output/OCL_Databook.xlsx
+        ↓
+analysis + management questions
         ↓
 secondary output/OCL_Report.pptx
 ```
 
-The raw source workbooks are read-only and are not copied into Git. The principal deliverable is `output/OCL_Databook.xlsx`.
+The OCL agent does **not** parse the original client workbook layout. Different client layouts are normalized upstream by `fdd-data-preparation`; OCL begins from the published standardized database.
+
+## AI and Python boundary
+
+This workflow uses AI for contextual understanding. It is model-provider-neutral: the active coding/agent host can be Codex, Claude Code, Copilot or another capable host.
+
+Python owns source profiling, source hashes, validation, deterministic transformations, completeness, lineage, financial calculations, controls and rendering. The AI host owns contextual dataset understanding, the source-bound processing plan, and OCL semantic/judgment review. No external LLM API is embedded in the deterministic Python core.
+
+When run from a plain terminal, `run_all.py` may pause at an `AI_HOST` checkpoint and print the handoff file and required artifacts. When a capable AI coding host is running the skill, it should complete that reasoning checkpoint and rerun the same root command automatically.
 
 ## Design principles
 
-- **No fixed Excel structural template.** Actual data, periods, categories, hierarchy and supported analyses determine workbook structure.
-- **No legacy category universe.** Source-present line items drive the dynamic mapping layer.
-- **No silent drops.** In-scope unmapped items, trade payables, financing and other exclusions remain visible.
-- **Source traceability.** `Source_Record_ID` lineage is preserved and workbook amounts link to protected standardized source-copy tabs.
-- **Reconciliation is a hard gate.** Applicable controls must pass; missing evidence is not solved with plugs.
-- **Human decisions remain authoritative.** Existing user-maintained config rows override autonomous first-pass defaults.
-- **Package isolation.** Autonomous config rows are source-package-bound so they do not silently leak across engagements.
-- **Lightweight runtime.** Standard-library CSV/JSON plus `openpyxl` and `python-pptx`; no pandas and no embedded external LLM API.
+- Raw client workbooks remain read-only and should not be committed to Git.
+- No fixed Excel structural template drives the final databook.
+- No legacy OCL category universe is imposed.
+- `Source_Record_ID` lineage is preserved into the standardized database and OCL model.
+- No silent drops: relevant source material must be included or explicitly excluded.
+- Applicable reconciliations are hard gates; no balancing plugs.
+- Human-reviewed OCL decisions remain authoritative.
+- Keep the runtime light: standard-library CSV/JSON plus `openpyxl` and `python-pptx`; no pandas and no embedded model API.
 
-## Embedded data preparation
-
-The repository contains `fdd-data-preparation/` as the internal upstream preparation layer. It performs a deterministic fast path for common structured annual, monthly, movement, TB/control and optional revenue/payroll schedules, while preserving source hashes and lineage. Populated sheets that cannot be classified safely are surfaced in `databook_metadata.json` rather than silently ignored.
-
-An existing standardized publication can still be supplied explicitly for compatibility:
+An already published data-preparation package can still be supplied directly:
 
 ```bash
-python run_all.py --data-prep-output <path>
+python run_all.py --data-prep-output <path-to-output/latest>
 ```
 
-See `SKILL.md` for the operating contract and `_how_it_works.md` for the workflow.
+See `SKILL.md` and `_how_it_works.md` for the detailed operating contract.
