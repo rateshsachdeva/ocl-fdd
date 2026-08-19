@@ -48,10 +48,12 @@ def test_raw_source_reaches_ai_understanding_checkpoint_without_source_change(tm
     # A plain Python process must stop at the real AI reasoning boundary. A
     # coding/agent host reads the handoff, writes the requested Dataset Map /
     # Processing Plan artifacts and resumes this same root workflow.
-    assert result.data_prep_state in {"AWAITING_AI_PLANNING", "AWAITING_DATASET_UNDERSTANDING"}
-    assert result.state.startswith("DATA_PREP_AWAITING_")
-    assert result.next_actor == "AI_HOST"
-    assert result.next_action in {"UNDERSTAND_AND_PLAN", "DATASET_UNDERSTANDING"}
-    assert result.handoff_path and result.handoff_path.exists()
+    assert result.state in {"AWAITING_AI_PLANNING", "AWAITING_DATASET_UNDERSTANDING"}
+    assert result.coordination.get("next_actor") == "AI_HOST"
+    assert result.coordination.get("next_action") in {"UNDERSTAND_AND_PLAN", "DATASET_UNDERSTANDING"}
+    handoff_path = Path(result.coordination["handoff_path"])
+    assert handoff_path.exists()
+    assert result.coordination.get("must_continue") is True
+    assert result.coordination.get("resume_command") == "python run_all.py"
     assert raw.read_bytes() == source_bytes
     assert not (output / "OCL_Databook.xlsx").exists()
