@@ -1,11 +1,9 @@
 """Main OCL workflow entry point.
 
-Normal use is intentionally one command:
-
-    python run_all.py
-
-Raw client files are read from references/source/, prepared internally, analysed
-and published as output/OCL_Databook.xlsx (plus the secondary PowerPoint report).
+When invoked by a capable AI coding host, this is a continuous workflow: Python
+profiles/validates/executes and the host performs the AI reasoning checkpoints.
+A plain terminal invocation may pause at an AI_HOST checkpoint; that is a normal
+state, not a parser failure.
 """
 from __future__ import annotations
 
@@ -28,27 +26,44 @@ from ocl_agent.part1_databook.semantic_handoff import SemanticHandoffError
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the complete OCL FDD skill.")
-    parser.add_argument("--data-prep-output", type=Path, help="Optional existing standardized publication; normally omit this and use references/source/.")
+    parser.add_argument("--data-prep-output", type=Path, help="Optional existing published data-preparation output/latest directory.")
     parser.add_argument("--part1-only", action="store_true", help="Stop after the reconciled styled databook is ready.")
     parser.add_argument("--skip-report", action="store_true", help="Create the Excel databook but skip the secondary PowerPoint report.")
     args = parser.parse_args()
     paths = ensure_runtime_folders()
     try:
-        result = run_end_to_end(
-            paths,
-            data_prep_output=args.data_prep_output,
-            part1_only=args.part1_only,
-            skip_report=args.skip_report,
-        )
+        result = run_end_to_end(paths, data_prep_output=args.data_prep_output, part1_only=args.part1_only, skip_report=args.skip_report)
     except (FileNotFoundError, ValueError, RuntimeError, InputContractError, JudgmentError, SemanticHandoffError, FinalQAError) as error:
         print(f"OCL stopped safely: {error}")
         return 2
 
     print(f"Workflow state: {result.state}")
+    if result.data_prep_state:
+        print(f"Data preparation: {result.data_prep_state}")
     if result.data_prep_output:
-        print(f"Prepared data: {result.data_prep_output}")
+        print(f"Published long/flat data: {result.data_prep_output}")
     for warning in result.warnings:
         print(f"Warning: {warning}")
+
+    if result.next_actor in {"AI_HOST", "PYTHON", "HUMAN"}:
+        print(f"Next actor: {result.next_actor}")
+        if result.next_action:
+            print(f"Next action: {result.next_action}")
+        if result.handoff_path:
+            print(f"Handoff: {result.handoff_path}")
+        if result.relevant_instruction:
+            print(f"Instruction: {result.relevant_instruction}")
+        if result.runtime_config:
+            print(f"OCL working config: {result.runtime_config}")
+        for artifact in result.required_artifacts:
+            print(f"Required artifact: {artifact}")
+        if result.next_actor == "AI_HOST":
+            print("Status: waiting for the active AI host to complete this reasoning checkpoint, then rerun run_all.py.")
+            return 3
+        if result.next_actor == "HUMAN":
+            print("Status: a genuine material decision requires human input.")
+            return 4
+
     if result.part1 and result.part1.state != "DATABOOK_READY":
         print(f"Part 1 state: {result.part1.state}")
         if result.part1.semantic_review:
@@ -57,6 +72,7 @@ def main() -> int:
         if blocking:
             print("Blocking controls: " + ", ".join(blocking))
         return 2
+
     if result.databook:
         print(f"Databook: {result.databook}")
     if result.qa:
