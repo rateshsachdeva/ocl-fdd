@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Client / generated content
+references/source/*
+!references/source/.gitkeep
+references/other/*
+!references/other/.gitkeep
+output/*
+!output/.gitkeep
+work/
+
+# Office temporary files
+~$*.xlsx
+~$*.xlsm
+~$*.pptx
+
+# Generated deliverables
+OCL_Databook.xlsx
+OCL_Report.pptx

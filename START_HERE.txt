@@ -1,0 +1,11 @@
+OCL FDD — START HERE
+
+1. Create a Python 3.11+ virtual environment.
+2. Install: pip install -r requirements.txt
+3. Run tests: python -m pytest
+4. Obtain an APPROVED standardized publication from fdd-data-preparation.
+5. Validate the Part 1 handoff:
+   python run_all.py --data-prep-output <path-to-output/latest> --foundation-only
+
+The repository currently contains the foundation milestone.  Full semantic
+adaptation and Parts 2-4 will be implemented in subsequent reviewed stages.
