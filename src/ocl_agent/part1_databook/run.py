@@ -10,6 +10,7 @@ from ocl_agent.part1_databook.input_contract import StandardizedPackage, discove
 from ocl_agent.part1_databook.judgment_validation import JudgmentIssue, validate_judgment_completion
 from ocl_agent.part1_databook.judgments import JudgmentStore, load_judgments
 from ocl_agent.part1_databook.movements import MovementBuildResult, build_movements, embed_rollforward, rollforward_control
+from ocl_agent.part1_databook.periods import continuity_control
 from ocl_agent.part1_databook.record_builder import RecordBuildResult, build_ocl_records
 from ocl_agent.part1_databook.renderer import render_workbook
 from ocl_agent.part1_databook.review_context import write_review_context
@@ -54,22 +55,20 @@ def run_part1(standardized_output: Path, config_dir: Path, output_dir: Path) -> 
     if not handoff_path.exists():
         draft = write_semantic_handoff_draft(package, profiles, output_dir / "semantic_handoff_draft.json")
         return Part1Result("AWAITING_SEMANTIC_HANDOFF", package, judgments, input_review, handoff_draft=draft)
-
     handoff = load_semantic_handoff(handoff_path, package, profiles, require_confirmed=True)
     build = build_ocl_records(package, handoff, judgments)
     movement_build = build_movements(package, handoff, judgments, handoff_path)
     judgment_issues = validate_judgment_completion(build.records)
     movement_check = rollforward_control(movement_build.records, build.records, movement_build.alignments, movement_build.issues)
-    controls = build_core_controls(build.records, build, handoff, judgment_issues, package, movement_control=movement_check)
+    period_check = continuity_control(build.records, handoff_path)
+    controls = build_core_controls(build.records, build, handoff, judgment_issues, package, movement_control=movement_check, continuity_control=period_check)
     semantic_review = write_semantic_review(package, profiles, handoff, build, output_dir / "OCL_Stage2_Review.xlsx", judgment_issues=judgment_issues, controls=controls)
     review_context = write_review_context(package, handoff, build.records, output_dir / "OCL_Review_Context.json")
-
     if build.issues or judgment_issues:
         return Part1Result("AWAITING_JUDGMENT_REVIEW", package, judgments, input_review, handoff=handoff, build=build, movement_build=movement_build, semantic_review=semantic_review, review_context=review_context, judgment_issues=judgment_issues, controls=controls)
     blocking_controls = tuple(control for control in controls if control.status in {CheckStatus.FAIL, CheckStatus.REVIEW_REQUIRED})
     if blocking_controls:
         return Part1Result("AWAITING_CONTROL_ALIGNMENT", package, judgments, input_review, handoff=handoff, build=build, movement_build=movement_build, semantic_review=semantic_review, review_context=review_context, controls=controls)
-
     blueprint = build_blueprint(build.records, source_dataset_files=[path.name for path in package.datasets], has_rollforward_data=bool(movement_build.records), supported_analyses=())
     databook = render_workbook(blueprint, build.records, controls, output_dir / "OCL_Databook.xlsx", package=package, handoff=handoff)
     embed_rollforward(databook, movement_build.records)
