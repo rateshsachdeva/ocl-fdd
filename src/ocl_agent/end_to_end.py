@@ -121,10 +121,26 @@ def _run_full_data_prep(repo_root: Path, source_dir: Path, work_root: Path) -> d
     if text not in sys.path:
         sys.path.insert(0, text)
     module = importlib.import_module("fdd_data.orchestration")
+    runs_root = work_root / "runs"
+    output_root = work_root / "output"
+
+    # Once this exact source package has been prepared successfully, reuse its
+    # publication while OCL works through its own AI review checkpoints. A new
+    # data-prep run is needed only when the source fingerprint changes.
+    status = module.get_databook_status(
+        source_directory=source_dir,
+        work_root=runs_root,
+        output_root=output_root,
+    )
+    if status.get("state") in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}:
+        published = _optional_path(status.get("handoff_path"))
+        if published is not None and published.is_dir():
+            return status
+
     return module.run_databook(
         source_directory=source_dir,
-        work_root=work_root / "runs",
-        output_root=work_root / "output",
+        work_root=runs_root,
+        output_root=output_root,
         approval_mode="AUTONOMOUS",
         audit_artifacts=False,
     )
