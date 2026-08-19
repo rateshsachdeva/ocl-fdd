@@ -38,8 +38,9 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
     top-level `references/source/` folder.
     """
     warnings: tuple[str, ...] = ()
+    runtime_work = paths.output.parent / "work"
     if data_prep_output is None:
-        prep_root = paths.root / "work" / "data_prep" / "latest"
+        prep_root = runtime_work / "data_prep" / "latest"
         prep_result = _run_embedded_data_prep(paths.root, paths.source, prep_root)
         data_prep_output = prep_result.output_dir
         warnings = tuple(prep_result.warnings)
@@ -52,15 +53,16 @@ def run_end_to_end(paths: RepoPaths, *, data_prep_output: Path | None = None, pa
     if part1.state != "DATABOOK_READY" or not part1.databook or not part1.build:
         return EndToEndResult(part1.state, data_prep_output, part1=part1, warnings=warnings)
 
+    qa_path = runtime_work / "final_qa.json"
     if part1_only:
         apply_workbook_style(part1.databook)
-        qa = validate_final_databook(part1.databook, paths.root / "work" / "final_qa.json")
+        qa = validate_final_databook(part1.databook, qa_path)
         return EndToEndResult("DATABOOK_READY", data_prep_output, part1=part1, databook=part1.databook, qa=qa, warnings=warnings)
 
     analysis = run_analysis(part1.build.records, part1.databook, package=part1.package, handoff=part1.handoff)
     questions = run_qanda(analysis, part1.databook)
     apply_workbook_style(part1.databook)
-    qa = validate_final_databook(part1.databook, paths.root / "work" / "final_qa.json")
+    qa = validate_final_databook(part1.databook, qa_path)
     report = None if skip_report else run_report(analysis, questions, paths.output)
     return EndToEndResult(
         "READY",
