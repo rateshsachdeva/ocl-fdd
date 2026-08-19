@@ -9,6 +9,7 @@ description = "Dynamic, auditable OCL financial due-diligence workflow"
 requires-python = ">=3.11"
 dependencies = [
   "openpyxl>=3.1,<4",
+  "python-pptx>=1.0,<2",
 ]
 
 [project.optional-dependencies]
