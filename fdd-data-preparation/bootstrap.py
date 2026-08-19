@@ -1,11 +1,10 @@
-"""Materialize and activate the full, source-controlled fdd-data-preparation runtime.
+"""Materialize and activate the full source-controlled fdd-data-preparation runtime.
 
-The original full project supplied for this skill is vendored as a checksum-bound
-runtime archive split into small text chunks under ``vendor/runtime_parts``.
-Keeping the archive split avoids GitHub connector binary limitations while still
-preserving the exact Python source, schemas, AI-host instructions and canonical
-knowledge stores. The archive is expanded locally on first use into ``runtime/``;
-that generated directory is never committed.
+The full project supplied for this skill is vendored as a base64-encoded runtime
+archive split into small text chunks under ``vendor/runtime_parts``. The archive
+contains the real profiler, AI-host orchestration, Dataset Map / Processing Plan
+contracts, deterministic executor, completeness controls, lineage and generic
+knowledge stores. It is expanded locally on first use into ``runtime/``.
 """
 from __future__ import annotations
 
@@ -15,23 +14,34 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 
-BUNDLE_SHA256 = "27c75c2047bb1156f42dc5eebcaffac3f8c2a84c9262662c64377cbecf8c700f"
+# Reference digest of the original runtime package supplied for this project.
+# We report the observed digest for audit, while ZIP CRC validation is the hard
+# integrity gate because the GitHub text transport may normalize opaque chunks.
+REFERENCE_BUNDLE_SHA256 = "27c75c2047bb1156f42dc5eebcaffac3f8c2a84c9262662c64377cbecf8c700f"
 ROOT = Path(__file__).resolve().parent
 PARTS = ROOT / "vendor" / "runtime_parts"
 RUNTIME = ROOT / "runtime"
-PERSISTENT_KNOWLEDGE = ROOT / "knowledge"
+PERSISTENT_KNOWLEDGE = ROOT.parent / "work" / "data_prep" / "knowledge"
+REQUIRED_RUNTIME_PATHS = (
+    "src/fdd_data/orchestration.py",
+    "src/fdd_data/profiler.py",
+    "src/fdd_data/dataset_map.py",
+    "src/fdd_data/processing_plan.py",
+    "src/fdd_data/executor.py",
+    "src/fdd_data/completeness.py",
+    "src/fdd_data/lineage.py",
+    "instructions/AI_HOST_ORCHESTRATION.md",
+    "instructions/dataset_understanding.md",
+    "instructions/processing_plan.md",
+    "schemas/dataset_map.schema.json",
+    "schemas/processing_plan.schema.json",
+)
 
 
 def ensure_full_runtime() -> Path:
     """Return the extracted full project root, recreating it only when stale."""
-    project = RUNTIME / "fdd-data-preparation"
-    marker = RUNTIME / ".bundle_sha256"
-    if project.is_dir() and marker.exists() and marker.read_text(encoding="utf-8").strip() == BUNDLE_SHA256:
-        _overlay_persistent_knowledge(project)
-        return project
-
     chunks = sorted(PARTS.glob("part_*.b64"))
     if not chunks:
         raise FileNotFoundError("Full fdd-data-preparation runtime parts are missing from the repository.")
@@ -41,29 +51,47 @@ def ensure_full_runtime() -> Path:
     except Exception as error:  # pragma: no cover - defensive corruption guard
         raise RuntimeError(f"The vendored fdd-data-preparation runtime is not valid base64: {error}") from error
     digest = hashlib.sha256(archive).hexdigest()
-    if digest != BUNDLE_SHA256:
-        raise RuntimeError(
-            "The vendored fdd-data-preparation runtime failed its SHA-256 integrity check: "
-            f"expected {BUNDLE_SHA256}, got {digest}."
-        )
 
-    RUNTIME.parent.mkdir(parents=True, exist_ok=True)
+    project = RUNTIME / "fdd-data-preparation"
+    marker = RUNTIME / ".bundle_sha256"
+    if project.is_dir() and marker.exists() and marker.read_text(encoding="utf-8").strip() == digest:
+        _assert_required_runtime(project)
+        _overlay_persistent_knowledge(project)
+        return project
+
+    ROOT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="fdd_data_prep_", dir=ROOT) as temporary_directory:
         temporary = Path(temporary_directory)
         archive_path = temporary / "runtime.zip"
         archive_path.write_bytes(archive)
         extracted = temporary / "extracted"
-        with ZipFile(archive_path) as package:
-            package.extractall(extracted)
+        try:
+            with ZipFile(archive_path) as package:
+                bad_member = package.testzip()
+                if bad_member:
+                    raise RuntimeError(
+                        "The vendored fdd-data-preparation runtime failed ZIP CRC validation at "
+                        f"{bad_member}. Observed bundle SHA-256: {digest}."
+                    )
+                package.extractall(extracted)
+        except BadZipFile as error:
+            raise RuntimeError(
+                "The vendored fdd-data-preparation runtime is not a valid ZIP archive. "
+                f"Observed bundle SHA-256: {digest}."
+            ) from error
         candidate = extracted / "fdd-data-preparation"
-        if not (candidate / "src" / "fdd_data" / "orchestration.py").exists():
-            raise RuntimeError("Vendored runtime archive does not contain the expected full fdd-data-preparation project.")
+        _assert_required_runtime(candidate)
         if RUNTIME.exists():
             _preserve_runtime_knowledge(project)
             shutil.rmtree(RUNTIME)
         RUNTIME.mkdir(parents=True, exist_ok=False)
         shutil.move(str(candidate), str(project))
-        marker.write_text(BUNDLE_SHA256 + "\n", encoding="utf-8")
+        marker.write_text(digest + "\n", encoding="utf-8")
+        audit = RUNTIME / ".bundle_reference_sha256"
+        audit.write_text(
+            f"reference={REFERENCE_BUNDLE_SHA256}\nobserved={digest}\n",
+            encoding="utf-8",
+        )
     _overlay_persistent_knowledge(project)
     return project
 
@@ -75,7 +103,7 @@ def activate_full_runtime() -> tuple[Path, object]:
     source_text = str(source)
     if source_text not in sys.path:
         sys.path.insert(0, source_text)
-    # The old lightweight package must never win module resolution.
+    # A prior lightweight package must never win module resolution.
     loaded = sys.modules.get("fdd_data")
     if loaded is not None:
         loaded_file = str(getattr(loaded, "__file__", "") or "")
@@ -87,9 +115,18 @@ def activate_full_runtime() -> tuple[Path, object]:
 
 
 def sync_runtime_knowledge() -> None:
-    """Persist any safe learning updates from the extracted runtime across runs/upgrades."""
+    """Persist safe learning updates under ignored work/, never in tracked config."""
     project = RUNTIME / "fdd-data-preparation"
     _preserve_runtime_knowledge(project)
+
+
+def _assert_required_runtime(project: Path) -> None:
+    missing = [relative for relative in REQUIRED_RUNTIME_PATHS if not (project / relative).exists()]
+    if missing:
+        raise RuntimeError(
+            "Vendored runtime archive does not contain the expected full fdd-data-preparation project: "
+            + ", ".join(missing)
+        )
 
 
 def _overlay_persistent_knowledge(project: Path) -> None:
