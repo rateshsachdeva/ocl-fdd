@@ -1,29 +1,31 @@
-# Embedded fdd-data-preparation runtime
+# Embedded fdd-data-preparation
 
-This folder is the integrated upstream data-preparation layer used by the OCL skill.
-
-The user-facing workflow is intentionally simple:
+This is the upstream data-preparation layer used by the OCL skill. Its job is to convert heterogeneous raw Excel sources into a reliable long/flat publication for downstream FDD analysis.
 
 ```text
-references/source/  ->  fdd-data-preparation  ->  work/data_prep/latest/  ->  OCL workflow
+raw Excel
+   ↓
+Python profile + staging
+   ↓
+AI dataset understanding
+   ↓
+AI processing plan
+   ↓
+Python validation + deterministic execution
+   ↓
+Python completeness + lineage
+   ↓
+output/latest standardized database(s)
 ```
 
-The integrated runtime follows the same core boundaries as the standalone `fdd-data-preparation` design supplied for this project:
+The AI host can be Codex, Claude Code, Copilot or another capable agent. The Python runtime itself does not call a model API.
 
-- source workbooks are read-only;
-- source SHA-256 hashes are recorded;
-- workbook/sheet structure is inspected before extraction;
-- source rows/cells receive persistent `Source_Record_ID` lineage;
-- standardized CSVs, metadata, manifest and lineage are published together;
-- ambiguous or unclassified material is surfaced in metadata rather than silently dropped;
-- OCL-specific scope, taxonomy and FDD judgments remain downstream in `ocl_agent`.
+## Responsibilities
 
-For the one-repository product experience, this embedded runtime includes a deterministic OCL-oriented fast path for common annual, monthly, movement, TB/control and optional context schedules. It does not modify the raw files and does not hard-code a client category universe.
+Python owns read-only discovery, SHA-256 source binding, structural profiling, targeted inspection, plan validation, deterministic reshaping, reconciliation, completeness, lineage and publication.
 
-Run the complete skill from the repository root with:
+The AI host owns contextual interpretation of the current source evidence: what logical datasets exist, their grain/field meaning, how source partitions relate, and the deterministic processing plan needed to produce the standardized database.
 
-```bash
-python run_all.py
-```
+This layer does **not** decide OCL scope, OCL categories, WC/debt-like treatment, normality or deal treatment. Those remain downstream in `ocl_agent`.
 
-The raw client files belong only in `references/source/`. Intermediate data-preparation publications are generated under `work/data_prep/` and the principal deliverable is `output/OCL_Databook.xlsx`.
+The normal user does not run this folder separately. The root `python run_all.py` orchestrates the workflow and passes the published `work/data_prep/output/latest/` package to OCL.
