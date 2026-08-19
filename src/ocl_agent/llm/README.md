@@ -1,38 +1,55 @@
 # AI-host boundary and workflow
 
-This folder contains vendor-neutral instructions for the AI host. Do not add OpenAI, Anthropic, Azure OpenAI, Copilot or Claude API calls to the deterministic Part 1 core.
+This folder contains vendor-neutral instructions for the AI host. Do not add OpenAI, Anthropic, Azure OpenAI, Copilot or Claude API calls to the deterministic core.
 
-## What the AI host does
+## Responsibility split
 
-The AI host interprets current engagement evidence and proposes dataset usage/field roles, OCL scope, actual category and parent hierarchy, management and FDD WC/debt-like treatment, normal versus one-off treatment, and later findings/questions. It does **not** calculate workbook financial totals.
+**Python owns:** reading standardized rows, amounts, transformations, formulas, controls, reconciliation, workbook/PPT writing.
+
+**The AI host owns:** contextual interpretation of current evidence, proposed semantic bindings, proposed OCL judgments, and optional refinement of finding/question wording.
+
+**Human-reviewed config owns final accounting/FDD meaning.** Existing `REVIEWED` decisions are authoritative.
 
 ## Evidence hierarchy
 
-Use, in order: current standardized data and `Source_Record_ID` lineage; current metadata/manifest; current workbook/field context and sample values; existing human-reviewed config; prior memory only as supporting evidence.
+Use, in order:
 
-Never infer meaning from a column heading alone. Never overwrite a human `REVIEWED` decision merely because the AI would classify it differently.
+1. current standardized data and `Source_Record_ID` lineage;
+2. current `databook_metadata.json`, execution manifest and upstream dataset understanding;
+3. current field context and bounded samples;
+4. current human-reviewed OCL config;
+5. prior knowledge only as supporting evidence.
 
-## Semantic handoff
+Never infer meaning from a heading alone. Never create a category because a prior engagement used it.
 
-When `run_all.py` returns `AWAITING_SEMANTIC_HANDOFF`:
+## When Part 1 says `AWAITING_SEMANTIC_HANDOFF`
 
 1. Read `output/semantic_handoff_draft.json` and `output/OCL_Input_Review.xlsx`.
-2. Inspect upstream metadata and only targeted standardized rows as needed.
-3. Assign dataset usages and field roles.
-4. Add monthly-to-annual alignments only when supported.
-5. If a TB control is available, bind its exact dataset, period field, amount field and exact filter values; do not use fuzzy keyword filters.
-6. Save as `config/semantic_handoff.json` with `status: CONFIRMED`.
-7. Rerun.
+2. Read current upstream metadata and inspect only targeted standardized rows needed to interpret ambiguous fields/datasets.
+3. Assign each standardized dataset one or more justified usages: `OCL_RECORDS`, `MONTHLY_RECORDS`, `MOVEMENT_RECORDS`, `TB_CONTROL`, `REVENUE_CONTEXT`, `PAYROLL_CONTEXT`, or `IGNORE`.
+4. Confirm exact field roles. For OCL/monthly: `source_record_id`, `period`, `amount`, `source_label`; add source code/entity/currency where present. Movement records also require `movement_type`.
+5. Add `monthly_to_annual` only from supported year-end relationships.
+6. If movement data exists, define exact `movement_rules` from the current source semantics. Each source movement label must have an explicit `OPENING`, `FLOW` or `CLOSING` role and multiplier. Never infer sign from the word alone. Add explicit `movement_to_annual` alignments.
+7. If period completeness should be tested, add explicit `expected_annual_periods` / `expected_monthly_periods`. Do not manufacture a sequence from labels whose fiscal/calendar semantics are unclear.
+8. Bind TB/scope controls using exact dataset, period field, amount field and exact filter values. Never fuzzy-match a control row.
+9. For revenue/payroll context, bind period and amount only when those fields are genuinely understood.
+10. Save as `config/semantic_handoff.json` with `status: CONFIRMED`, then rerun.
 
-## OCL judgment review
+## When Part 1 says `AWAITING_JUDGMENT_REVIEW`
 
-When the state is `AWAITING_JUDGMENT_REVIEW`:
+1. Read `output/OCL_Review_Context.json`; use `OCL_Stage2_Review.xlsx` where useful.
+2. Preserve every existing reviewed config row.
+3. Determine scope before category treatment.
+4. Add only categories/hierarchy that actually occur in current data.
+5. Use source label + source code + entity when the same label has different meanings at different grains.
+6. Canonical WC/debt values are `working_capital`, `debt_like`, `neither`; normality values are `normal`, `one_off`.
+7. AI-created decisions remain `PROPOSED` until explicitly reviewed. Do not silently promote proposals to `REVIEWED`.
+8. Trade payables, financing and outside-OCL rows remain explicit scope outcomes rather than being dropped.
 
-1. Read `output/OCL_Review_Context.json` first; use the Excel review where useful.
-2. Preserve all existing reviewed config rows.
-3. Add only genuinely needed current-source keys, using source label + source code + entity when that grain is necessary.
-4. Mark AI-created decisions `PROPOSED` unless the user already explicitly approved the decision.
-5. Do not create categories just because they existed in a prior workbook.
-6. Do not force every row into OCL: trade payables, financing and out-of-scope items remain explicit scope outcomes.
+## When Part 1 says `AWAITING_CONTROL_ALIGNMENT`
 
-A final Part 1 databook is not published while required judgments remain proposed/unresolved.
+Read the failing/review-required controls in the review workbook/context. Resolve only by supplying better source-backed evidence, exact alignment or correcting an actual classification/data issue. Never insert a balancing value or widen the tolerance to make a check pass.
+
+## Parts 2–4
+
+Once `DATABOOK_READY`, deterministic Python already calculates evidence, drafts focused questions and renders outputs. The AI host may improve prose if asked, but must preserve the numeric evidence and the management-question discipline in `SKILL.md`.
