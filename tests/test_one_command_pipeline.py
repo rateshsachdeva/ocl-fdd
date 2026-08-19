@@ -48,7 +48,10 @@ def test_raw_source_reaches_ai_understanding_checkpoint_without_source_change(tm
     # A plain Python process must stop at the real AI reasoning boundary. A
     # coding/agent host reads the handoff, writes the requested Dataset Map /
     # Processing Plan artifacts and resumes this same root workflow.
-    assert result.state in {"AWAITING_AI_PLANNING", "AWAITING_DATASET_UNDERSTANDING"}
+    assert result.state in {
+        "DATA_PREP_AWAITING_AI_PLANNING",
+        "DATA_PREP_AWAITING_DATASET_UNDERSTANDING",
+    }
     assert result.coordination.get("next_actor") == "AI_HOST"
     assert result.coordination.get("next_action") in {"UNDERSTAND_AND_PLAN", "DATASET_UNDERSTANDING"}
     handoff_path = Path(result.coordination["handoff_path"])
