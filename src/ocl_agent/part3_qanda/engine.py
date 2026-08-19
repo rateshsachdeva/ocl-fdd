@@ -1,75 +1,85 @@
 """Evidence-driven management questions.
 
-Questions are created only when a finding gives a reason to ask.  This avoids
-question-for-question's-sake output and keeps wording specific to the evidence.
+Questions are created only when a finding gives a reason to ask. Each question
+requests one focused operational explanation/evidence item; management is not
+asked to decide FDD deal treatment.
 """
 from __future__ import annotations
 
 from ocl_agent.schemas import AnalysisResult, ManagementQuestion
 
+MAX_QUESTIONS = 30
+SPECIAL_TYPES = {"NEW_ITEM", "CLIFF", "STALE_BALANCE"}
+
 
 def build_questions(analysis: AnalysisResult) -> tuple[ManagementQuestion, ...]:
+    special_categories = {str(item.metrics.get("category")) for item in analysis.findings if item.finding_type in SPECIAL_TYPES and item.metrics.get("category")}
     questions: list[ManagementQuestion] = []
     for finding in analysis.findings:
-        question = _question_for_finding(finding.finding_type, finding.metrics)
-        if question is None:
+        if finding.finding_type == "CATEGORY_MOVEMENT" and str(finding.metrics.get("category")) in special_categories:
             continue
-        text, rationale = question
-        questions.append(ManagementQuestion(
-            question_id=f"Q_{finding.finding_id}",
-            question=text,
-            rationale=rationale,
-            evidence_references=finding.evidence_references,
-            linked_finding_id=finding.finding_id,
-            priority=finding.priority,
-        ))
-    return tuple(_dedupe(questions))
+        draft = _question_for_finding(finding.finding_type, finding.metrics)
+        if draft is None:
+            continue
+        text, rationale = draft
+        questions.append(ManagementQuestion(f"Q_{finding.finding_id}", text, rationale, finding.evidence_references, finding.finding_id, finding.priority))
+    return tuple(_dedupe(questions)[:MAX_QUESTIONS])
 
 
 def _question_for_finding(kind: str, metrics: dict):
     if kind == "TOTAL_CHANGE":
-        previous = metrics.get("previous_period")
-        latest = metrics.get("latest_period")
-        change = metrics.get("change")
+        previous, latest = metrics.get("previous_period"), metrics.get("latest_period")
         return (
-            f"What were the main operational or accounting drivers of the OCL movement between {previous} and {latest}, and how much of the {change} change is expected to reverse in the normal course of business?",
-            "The closing OCL balance changed materially; understanding the drivers and expected reversal is relevant to normalized working capital and debt-like assessment.",
+            f"Please explain the principal operational or accounting drivers of the overall OCL movement between {previous} and {latest}.",
+            "The closing OCL balance changed materially and the schedule alone does not explain the business drivers.",
         )
     if kind == "CATEGORY_MOVEMENT":
-        category = metrics.get("category")
-        previous = metrics.get("previous_period")
-        latest = metrics.get("latest_period")
+        category, previous, latest = metrics.get("category"), metrics.get("previous_period"), metrics.get("latest_period")
         return (
-            f"What specifically drove the movement in {category} between {previous} and {latest}, and does the closing balance include any catch-up, delayed payment, estimate true-up or unusual item?",
-            "The category moved materially and may reflect timing, estimation or non-recurring effects that are not visible from the ledger balance alone.",
+            f"Please explain the primary underlying driver of the movement in {category} between {previous} and {latest}.",
+            "The category movement is material relative to the closing OCL balance and requires an operational explanation.",
+        )
+    if kind == "NEW_ITEM":
+        label, latest = metrics.get("source_label"), metrics.get("latest_period")
+        return (
+            f"Please explain the specific event or calculation that gave rise to the new {label} balance in {latest}.",
+            "The item was nil in the prior period and appears as a new closing obligation.",
+        )
+    if kind == "CLIFF":
+        label, previous, latest = metrics.get("source_label"), metrics.get("previous_period"), metrics.get("latest_period")
+        return (
+            f"Please confirm how the {label} balance recorded in {previous} was settled or released before {latest}.",
+            "The balance falls to nil and the schedule does not show whether this reflects cash settlement, reversal or release.",
+        )
+    if kind == "STALE_BALANCE":
+        label, start, end = metrics.get("source_label"), metrics.get("start_period"), metrics.get("end_period")
+        return (
+            f"Please confirm whether the unchanged {label} balance from {start} to {end} remains a valid outstanding obligation.",
+            "The balance has remained unchanged across multiple monthly closes, which may indicate a stale accrual or genuinely long-dated obligation.",
         )
     if kind == "CONCENTRATION":
-        category = metrics.get("category")
-        share = metrics.get("share_pct")
+        category, share = metrics.get("category"), metrics.get("share_pct")
         return (
-            f"{category} represents approximately {share:.1f}% of the closing OCL balance. What are the principal underlying obligations, how is the balance calculated, and what is the typical settlement timing?",
-            "A concentrated closing balance can have a disproportionate impact on working-capital normalization and requires clarity on composition and settlement mechanics.",
+            f"Please provide a breakdown of the principal obligations within {category}, including their expected settlement timing; this category represents approximately {share:.1f}% of closing OCL.",
+            "The category is concentrated and a single summary balance may mask obligations with different settlement profiles.",
         )
     if kind == "MONTHLY_VARIABILITY":
-        category = metrics.get("category")
-        peak_period = metrics.get("peak_period")
+        category, peak_period = metrics.get("category"), metrics.get("peak_period")
         return (
-            f"What explains the month-to-month volatility in {category}, including the peak in {peak_period}, and is the pattern driven by seasonality, payment timing, estimation methodology or discrete events?",
-            "Material monthly variability is visible in the reconciled schedule and warrants explanation before treating a single closing balance as representative.",
+            f"Please explain the primary operational driver of the monthly volatility in {category}, including the peak in {peak_period}.",
+            "The monthly schedule shows material variability that is not explained by the recorded balances alone.",
         )
     if kind == "DEBT_LIKE":
-        period = metrics.get("period")
-        amount = metrics.get("amount")
+        period, amount = metrics.get("period"), metrics.get("amount")
         return (
-            f"For the items classified as debt-like at {period} (totaling {amount}), please confirm the underlying obligations, expected settlement dates and whether any amounts are already reflected elsewhere in net debt or purchase-price mechanics.",
-            "Reviewed FDD classification indicates potential debt-like exposure and duplicate counting should be avoided.",
+            f"Please provide a breakdown of the obligations and expected settlement dates for the items classified in the FDD review as debt-like at {period} (total {amount}).",
+            "The reviewed classification requires factual support on the underlying obligation and timing; management is not being asked to determine deal treatment.",
         )
     if kind == "ONE_OFF":
-        period = metrics.get("period")
-        amount = metrics.get("amount")
+        period, amount = metrics.get("period"), metrics.get("amount")
         return (
-            f"For the items classified as one-off/non-recurring at {period} (totaling {amount}), what gave rise to them and should any portion be excluded from a normalized working-capital benchmark?",
-            "Reviewed normality judgments identify balances that may not represent the recurring operating level.",
+            f"Please explain the specific events giving rise to the items classified as one-off/non-recurring at {period} (total {amount}).",
+            "The reviewed normality classification identifies balances that may not reflect recurring operations; the factual origin should be confirmed.",
         )
     return None
 
@@ -79,8 +89,7 @@ def _dedupe(questions: list[ManagementQuestion]) -> list[ManagementQuestion]:
     result: list[ManagementQuestion] = []
     for question in questions:
         key = question.question.casefold().strip()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(question)
+        if key not in seen:
+            seen.add(key)
+            result.append(question)
     return result
