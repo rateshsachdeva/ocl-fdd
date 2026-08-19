@@ -1,31 +1,45 @@
-"""Standalone entry point for the embedded data-preparation runtime."""
+"""Standalone entry point for the full embedded fdd-data-preparation workflow.
+
+Normal OCL use should run the repository-root ``run_all.py``. This entry point is
+kept only for direct data-preparation testing/debugging and uses the exact same
+full AI-understanding + deterministic-Python runtime as the OCL bridge.
+"""
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from bootstrap import activate_full_runtime
 
-from fdd_data import prepare_source_package
+ROOT = Path(__file__).resolve().parent
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare raw FDD source files for the integrated OCL workflow.")
+    parser = argparse.ArgumentParser(description="Run the full embedded FDD data-preparation workflow.")
     parser.add_argument("--source", type=Path, default=ROOT.parent / "references" / "source")
-    parser.add_argument("--output", type=Path, default=ROOT.parent / "work" / "data_prep" / "latest")
+    parser.add_argument("--work-root", type=Path, default=ROOT.parent / "work" / "data_prep" / "runs")
+    parser.add_argument("--output-root", type=Path, default=ROOT.parent / "work" / "data_prep" / "output")
+    parser.add_argument("--approval-mode", choices=("AUTONOMOUS", "REVIEW"), default="AUTONOMOUS")
     args = parser.parse_args()
-    result = prepare_source_package(args.source, args.output)
-    print(json.dumps({
-        "state": "COMPLETED_WITH_WARNINGS" if result.warnings else "COMPLETED",
-        "output_dir": str(result.output_dir),
-        "datasets": [path.name for path in result.datasets],
-        "warnings": list(result.warnings),
-    }, indent=2))
+
+    _project, fdd_data = activate_full_runtime()
+    status = fdd_data.run_databook(
+        args.source,
+        args.work_root,
+        args.output_root,
+        approval_mode=args.approval_mode,
+    )
+    print(json.dumps(status, indent=2, ensure_ascii=False, default=str))
+
+    coordination = status.get("coordination", {}) if isinstance(status, dict) else {}
+    actor = str(coordination.get("next_actor") or "").upper()
+    if actor == "AI_HOST":
+        return 3
+    if actor == "HUMAN":
+        return 4
+    if str(status.get("state") or "").upper() in {"FAILED", "FAILED_VALIDATION"}:
+        return 2
     return 0
 
 
