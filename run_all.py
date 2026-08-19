@@ -1,15 +1,18 @@
 """Main OCL workflow entry point.
 
-Normal use is intentionally one command:
+Normal use:
 
     python run_all.py
 
-Raw client files are read from references/source/, prepared internally, analysed
-and published as output/OCL_Databook.xlsx (plus the secondary PowerPoint report).
+Raw client files are read from references/source/.  The full embedded
+fdd-data-preparation workflow profiles them, delegates contextual Dataset Map /
+Processing Plan reasoning to the active AI host, executes deterministically,
+and publishes standardized data before OCL begins.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -28,11 +31,16 @@ from ocl_agent.part1_databook.semantic_handoff import SemanticHandoffError
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the complete OCL FDD skill.")
-    parser.add_argument("--data-prep-output", type=Path, help="Optional existing standardized publication; normally omit this and use references/source/.")
+    parser.add_argument(
+        "--data-prep-output",
+        type=Path,
+        help="Optional existing published fdd-data-preparation output/latest directory; normally omit this.",
+    )
     parser.add_argument("--part1-only", action="store_true", help="Stop after the reconciled styled databook is ready.")
     parser.add_argument("--skip-report", action="store_true", help="Create the Excel databook but skip the secondary PowerPoint report.")
     args = parser.parse_args()
     paths = ensure_runtime_folders()
+
     try:
         result = run_end_to_end(
             paths,
@@ -46,17 +54,23 @@ def main() -> int:
 
     print(f"Workflow state: {result.state}")
     if result.data_prep_output:
-        print(f"Prepared data: {result.data_prep_output}")
+        print(f"Published standardized data: {result.data_prep_output}")
+    if result.runtime_config:
+        print(f"Package review config: {result.runtime_config}")
     for warning in result.warnings:
         print(f"Warning: {warning}")
-    if result.part1 and result.part1.state != "DATABOOK_READY":
-        print(f"Part 1 state: {result.part1.state}")
-        if result.part1.semantic_review:
-            print(f"Review: {result.part1.semantic_review}")
-        blocking = [control.control_id for control in result.part1.controls if control.status.value in {"FAIL", "REVIEW_REQUIRED"}]
-        if blocking:
-            print("Blocking controls: " + ", ".join(blocking))
-        return 2
+
+    if result.coordination:
+        print("Workflow coordination:")
+        print(json.dumps(result.coordination, indent=2, default=str))
+        actor = str(result.coordination.get("next_actor") or "").upper()
+        action = result.coordination.get("next_action")
+        if actor == "AI_HOST":
+            print(f"AI host action: {action}. Complete the referenced artifacts and rerun; an agent host should continue automatically.")
+        elif actor == "HUMAN":
+            print(f"Human review required: {action}. Review only the identified judgment/approval matters, then rerun.")
+        return 0
+
     if result.databook:
         print(f"Databook: {result.databook}")
     if result.qa:
