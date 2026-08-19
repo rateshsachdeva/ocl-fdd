@@ -4,27 +4,40 @@ OCL FDD - START HERE
 1. Put the raw client Excel files in:
        references/source/
 
-2. Run from the repository root:
+2. From the repository root run:
        python run_all.py
 
-3. The skill will internally:
-       raw files
-         -> fdd-data-preparation
-         -> standardized data + lineage
-         -> OCL scope/mapping/controls
+3. The workflow is:
+       raw Excel
+         -> full fdd-data-preparation
+            -> Python profiling
+            -> AI-host dataset understanding + Processing Plan
+            -> Python deterministic execution + completeness + lineage
+         -> published standardized long/flat data
+         -> OCL semantic interpretation
+         -> OCL judgments + hard controls
          -> databook
-         -> analysis
-         -> management questions
-         -> styling
-         -> final QA
+         -> analysis + management questions
+         -> styling + final QA
 
-4. Principal output:
+4. Principal output when complete:
        output/OCL_Databook.xlsx
 
 5. Secondary output:
        output/OCL_Report.pptx
 
+IMPORTANT ABOUT AI CHECKPOINTS
+------------------------------
+The full data-preparation workflow deliberately does not call a model API from Python.
+If run from a coding-agent host (Codex / Claude Code / Copilot), the agent should follow
+AGENTS.md and automatically continue any Workflow coordination checkpoint where:
+
+       next_actor = AI_HOST
+       must_continue = true
+
+If run from a plain PowerShell terminal, Python may stop at that AI-host checkpoint and
+print the exact instruction / handoff path. That is expected; the workflow is refusing
+to guess a new client layout without contextual AI reasoning.
+
 Do not commit client source files. references/source/ is intentionally ignored by Git.
 Do not bypass failed controls or create balancing plugs.
-
-For the detailed contract, read SKILL.md.
