@@ -11,13 +11,17 @@ from openpyxl.utils import get_column_letter
 from ocl_agent.part1_databook.input_contract import StandardizedPackage
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.part2_analysis.context import enrich_with_context, load_context
+from ocl_agent.part2_analysis.diagnostics import diagnostic_findings
 from ocl_agent.part2_analysis.engine import analyse_records
 from ocl_agent.schemas import AnalysisResult, OCLRecord
 
 
 def run_analysis(records: Iterable[OCLRecord], databook_path: Path, *, package: StandardizedPackage | None = None, handoff: SemanticHandoff | None = None) -> AnalysisResult:
     rows = tuple(records)
-    result = analyse_records(rows)
+    base = analyse_records(rows)
+    extra = diagnostic_findings(rows)
+    seen = {item.finding_id for item in base.findings}
+    result = AnalysisResult((*base.findings, *(item for item in extra if item.finding_id not in seen)), base.tables, base.annual_periods, base.monthly_periods, base.latest_annual_period)
     if package is not None and handoff is not None:
         result = enrich_with_context(result, rows, load_context(package, handoff))
     _embed_analysis(Path(databook_path), result)
