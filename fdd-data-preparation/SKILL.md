@@ -2,16 +2,39 @@
 
 ## Purpose
 
-Prepare raw Excel sources from the parent repository's `references/source/` folder into a standardized, lineage-preserving publication for the downstream OCL skill.
+Convert raw client Excel files from the parent repository's `references/source/` folder into standardized, lineage-preserving long/flat dataset(s) for downstream OCL FDD.
 
-## Contract
+## Architecture
 
-- Read source workbooks only; never modify them.
-- Capture and re-check SHA-256 around processing.
-- Detect structured annual, monthly, movement, TB/control, revenue and payroll schedules from workbook/sheet evidence rather than fixed filenames.
-- Preserve source workbook, worksheet, row and amount-cell lineage in `Source_Record_ID`.
-- Publish standardized CSVs plus `execution_manifest.json`, `databook_metadata.json`, `lineage.csv` and `field_lineage.csv`.
-- Report populated sheets that cannot be classified safely in metadata; do not silently drop them.
-- Do not decide OCL category, WC/debt-like treatment, normality or deal treatment here. Those belong to the OCL layer.
+```text
+raw source
+  → deterministic discovery/profile/staging
+  → AI dataset understanding
+  → AI deterministic processing plan
+  → Python validation/approval gate
+  → deterministic execution
+  → completeness + lineage
+  → published output/latest
+```
 
-The normal user does not run this folder separately. The parent `python run_all.py` orchestrates it automatically.
+The active AI host performs contextual reasoning. Python does not call an LLM API.
+
+## Non-negotiables
+
+- Source workbooks are read-only; capture and re-check SHA-256.
+- Understand workbook, worksheet, region, preamble, field samples and related-source context together; do not infer meaning from heading alone.
+- Use stable physical `field_id` values as execution keys.
+- Allow one logical dataset to span multiple files/sheets/regions when current evidence supports it.
+- AI creates `dataset_map.json` and a source-bound `processing_plan.json`; Python validates both before execution.
+- Use deterministic reshaping such as direct mapping, union and unpivot according to the approved plan.
+- Preserve blank versus zero and source grain unless the plan explicitly and safely says otherwise.
+- Never create balancing plugs or silently discard source material.
+- Every relevant physical source region/row must be retained or explicitly excluded.
+- Every published record must retain valid source lineage via `Source_Record_ID`.
+- Publication requires source/output/lineage completeness to pass.
+
+## Boundary with OCL
+
+Data preparation stops after publishing standardized dataset(s), metadata, manifest and lineage. It must not decide OCL scope, taxonomy, hierarchy, WC/debt-like treatment, normality, findings or management questions. Those belong to `ocl_agent`.
+
+The parent `python run_all.py` is the normal launcher; this subfolder is an internal upstream capability.
