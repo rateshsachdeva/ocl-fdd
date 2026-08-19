@@ -1,10 +1,10 @@
 """Materialize and activate the full source-controlled fdd-data-preparation runtime.
 
-The full project supplied for this skill is vendored as a base64-encoded runtime
-archive split into small text chunks under ``vendor/runtime_parts``. The archive
-contains the real profiler, AI-host orchestration, Dataset Map / Processing Plan
-contracts, deterministic executor, completeness controls, lineage and generic
-knowledge stores. It is expanded locally on first use into ``runtime/``.
+The supplied full project is vendored as a base64 runtime archive. The archive's
+old standalone ``run_databook.py`` member is not part of the imported runtime and
+is known to be damaged in the historical bundle; the repository now provides a
+clean standalone wrapper outside the bundle. All required runtime modules still
+receive full CRC/decompression validation before activation.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent
 PARTS = ROOT / "vendor" / "runtime_parts"
 RUNTIME = ROOT / "runtime"
 PERSISTENT_KNOWLEDGE = ROOT.parent / "work" / "data_prep" / "knowledge"
+IGNORED_BUNDLE_MEMBERS = {"fdd-data-preparation/run_databook.py"}
 REQUIRED_RUNTIME_PATHS = (
     "src/fdd_data/orchestration.py",
     "src/fdd_data/profiler.py",
@@ -66,12 +67,16 @@ def ensure_full_runtime() -> Path:
         try:
             with ZipFile(archive_path) as package:
                 bad_members = _bad_zip_members(package)
-                if bad_members:
+                unexpected_bad = [name for name in bad_members if name not in IGNORED_BUNDLE_MEMBERS]
+                if unexpected_bad:
                     raise RuntimeError(
                         "The vendored fdd-data-preparation runtime failed ZIP CRC/decompression validation. "
-                        f"Bad members: {', '.join(bad_members)}. Observed bundle SHA-256: {digest}."
+                        f"Bad runtime members: {', '.join(unexpected_bad)}. Observed bundle SHA-256: {digest}."
                     )
-                package.extractall(extracted)
+                for info in package.infolist():
+                    if info.filename in IGNORED_BUNDLE_MEMBERS:
+                        continue
+                    package.extract(info, extracted)
         except BadZipFile as error:
             raise RuntimeError(
                 "The vendored fdd-data-preparation runtime is not a valid ZIP archive. "
