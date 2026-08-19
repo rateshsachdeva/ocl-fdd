@@ -2,123 +2,162 @@
 
 ## Objective
 
-Build a traceable, dynamically structured Other Current Liabilities financial due-diligence databook, analysis, management questions and PowerPoint report from one shared reconciled OCL data model.
+Build a traceable, dynamically structured Other Current Liabilities financial-due-diligence databook from raw client source files, then produce evidence-based analysis, management questions and a secondary PowerPoint report from one shared reconciled OCL model.
 
-## Operating model
-
-`run_all.py` is the public launcher. The normal upstream input is an approved `fdd-data-preparation` publication.
+The target user experience is:
 
 ```text
-fdd-data-preparation
+put files in references/source/
         ↓
-standardized CSVs + metadata + lineage
+python run_all.py
         ↓
-Part 1 — semantic handoff → reviewed OCL judgments → controls → dynamic databook
+output/OCL_Databook.xlsx
+```
+
+No separate manual execution of another repository should be required.
+
+## End-to-end operating model
+
+`run_all.py` is the only public launcher.
+
+```text
+references/source/
         ↓
-shared reconciled OCL data model
+embedded fdd-data-preparation
+        ↓
+work/data_prep/latest/
+  standardized CSVs + metadata + manifest + lineage
+        ↓
+canonical OCL semantic handoff
+        ↓
+reviewable scope + dynamic mapping/hierarchy + WC/debt/normality
+        ↓
+hard controls
+        ↓
+Part 1 — dynamic formula-driven databook
         ↓
 Part 2 — deterministic evidence analysis
         ↓
 Part 3 — evidence-driven management questions
         ↓
-Part 4 — dynamic PowerPoint report
+final workbook styling + deterministic QA
+        ↓
+output/OCL_Databook.xlsx
+        ↓
+Part 4 — secondary OCL_Report.pptx
 ```
 
-Keep the implementation light: standard-library CSV/JSON, `openpyxl`, `python-pptx`, bounded interpretation samples and streaming row construction. Do not add pandas, a second raw-workbook parser or an embedded LLM API without a demonstrated need.
+Keep the implementation light: standard-library CSV/JSON, `openpyxl`, `python-pptx`, streaming/bounded source processing, no pandas, no duplicate hidden data model, no embedded external LLM API.
+
+## Source and data-preparation boundary
+
+The repository contains `fdd-data-preparation/` as the internal upstream preparation layer.
+
+It owns:
+
+- read-only source discovery;
+- source SHA-256 capture and immutability checks;
+- workbook/sheet structural inspection;
+- deterministic reshape of supported annual, monthly, movement, TB/control and optional context schedules;
+- standardized CSV publication;
+- `Source_Record_ID` lineage;
+- execution manifest and dataset metadata;
+- visible reporting of populated sheets that could not be classified safely.
+
+OCL owns the downstream FDD meaning: scope, categories, hierarchy, WC/debt-like treatment, normality, analyses, management questions and final presentation.
+
+Do not modify raw client workbooks. Do not silently drop populated source material.
 
 ## Non-negotiable databook rules
 
 ### Source fidelity
 
 - Never invent financial amounts, balancing figures or plugs.
-- Do not alter raw client source workbooks.
-- Preserve `Source_Record_ID` and available upstream lineage.
+- Preserve `Source_Record_ID` and source file/sheet/cell lineage.
 - Databook amounts link by Excel formula to protected standardized `SRC_*` source-copy tabs.
-- Invalid, unknown, unmapped and excluded records remain visible; no silent drop is permitted.
+- Invalid, unknown, unmapped and excluded records remain visible.
+- `references/source/` remains ignored by Git so client data is not committed accidentally.
 
-### Human judgment owns meaning
+### Judgment ownership
 
-- Reviewed human decisions override AI suggestions.
-- Scope, mapping/hierarchy, WC/debt-like treatment and normal/one-off treatment remain reviewable outside hidden code.
-- AI-host suggestions are `PROPOSED` until reviewed.
-- Existing reviewed config is never regenerated away.
-- Judgment keys may use source label + source code + entity where necessary.
+- Existing human-maintained config rows always override autonomous defaults.
+- Scope, mapping/hierarchy, WC/debt-like treatment and normal/one-off treatment remain visible and reviewable.
+- Autonomous first-pass rows are allowed so a normal structured source package can complete without forcing the user to populate config first.
+- Autonomous rows are package-bound and must be discarded/rebuilt when the source package changes; they must not silently leak between engagements.
+- Autonomous defaults are conservative: do not invent a debt-like or one-off treatment without direct evidence.
+- Judgment keys may use source label + source code + entity where needed.
 
-Canonical reviewed values:
+Canonical values:
 
 - management/FDD view: `working_capital`, `debt_like`, `neither`;
 - normality: `normal`, `one_off`.
 
 ### Dynamic workbook
 
-Do not use `Template.xlsx` or another fixed Excel workbook as the structural basis. Do not hard-code legacy OCL categories, fixed periods or empty analytical sections.
+Do not use `Template.xlsx` or another fixed Excel workbook as the structural basis. Do not hard-code a legacy OCL category universe, fixed periods or empty analytical sections.
 
-Actual standardized data + reviewed judgment determine periods, categories, hierarchy, sheets and supported analysis. A separate OCL styling guide controls appearance only; it may not create financial content.
+Actual source-present records and available periods determine categories, hierarchy, sheets and analyses. A presentation layer may style those structures but may not create financial content that the data does not support.
 
-### Reconciliation is a hard control
+### Reconciliation is a hard gate
 
-Applicable controls must pass within tolerance before Part 1 publishes the final databook. Missing prerequisites are `NOT_APPLICABLE`; available-but-unresolved prerequisites are `REVIEW_REQUIRED`.
+Applicable controls must pass within the defined tolerance before final publication. Missing prerequisites are `NOT_APPLICABLE`; actual breaks are `FAIL`; available-but-unresolved evidence is `REVIEW_REQUIRED`.
 
 Controls include, where applicable:
 
-- mapped categories to in-scope OCL;
+- mapped categories to total in-scope OCL;
 - record coverage / no silent loss;
-- listing to explicitly bound TB control;
-- scope reconciliation to explicitly bound control;
+- listing to source-backed TB/control;
+- scope reconciliation including explicit trade-payable/financing outcomes;
 - WC/debt-like completeness;
-- explicit roll-forward and closing-to-listing reconciliation;
-- explicit period continuity;
+- roll-forward and closing-to-listing reconciliation;
+- explicit period continuity where an expected sequence is available;
 - monthly closing to annual closing;
 - semantic-build and judgment-completion checks.
 
-Never guess a TB control row, movement sign convention, period alignment or expected period sequence.
+Never fix a failed control with a plug.
 
-## Part 1 state machine
+## Embedded semantic handoff
 
-### `AWAITING_SEMANTIC_HANDOFF`
+The integrated data-preparation fast path emits canonical dataset names and fields. When those canonical outputs are present, `auto_semantics.py` creates the package-specific `config/semantic_handoff.json` deterministically.
 
-Python writes `output/OCL_Input_Review.xlsx` and `output/semantic_handoff_draft.json`. The AI host inspects current metadata/data evidence, assigns dataset usages and field roles, then writes package-specific `config/semantic_handoff.json` with `status: CONFIRMED`.
+Dataset usages remain:
 
-### `AWAITING_JUDGMENT_REVIEW`
+- `OCL_RECORDS`
+- `MONTHLY_RECORDS`
+- `MOVEMENT_RECORDS`
+- `TB_CONTROL`
+- `REVENUE_CONTEXT`
+- `PAYROLL_CONTEXT`
+- `IGNORE`
 
-Python writes `output/OCL_Stage2_Review.xlsx` and `output/OCL_Review_Context.json`. Missing OCL scope/mapping/WC-debt/normality judgments are reviewed without overwriting prior reviewed decisions.
+For OCL/monthly records the required roles are `source_record_id`, `period`, `amount`, `source_label`; optional roles include `source_code`, `entity`, `currency`.
 
-### `AWAITING_CONTROL_ALIGNMENT`
+Movement records also require `movement_type`. Exact source movement values are mapped to `OPENING`, `FLOW` or `CLOSING` roles with explicit multipliers. Monthly-to-annual and movement-to-annual alignments are package-specific.
 
-One or more hard controls require explicit evidence/alignment or contain a genuine break. Never solve a break with a plug.
+If an external standardized publication is supplied with `--data-prep-output`, the existing semantic-handoff validation contract remains available.
 
-### `DATABOOK_READY`
+## Part 1 — Databook
 
-Part 1 creates `output/OCL_Databook.xlsx`. Relevant sheets can include `Flat File`, `Balance by Category`, monthly sheets only when monthly data exists, `Roll-forward` only when explicitly supported, `Checks`, `Mapping`, `UNMAPPED`, `SCOPE_EXCLUDED`, and protected `SRC_*` tabs.
+Part 1 creates `output/OCL_Databook.xlsx` only after the applicable controls permit publication.
 
-## Semantic handoff contract
+Relevant sheets are data-driven and may include:
 
-Dataset usages are `OCL_RECORDS`, `MONTHLY_RECORDS`, `MOVEMENT_RECORDS`, `TB_CONTROL`, `REVENUE_CONTEXT`, `PAYROLL_CONTEXT`, and `IGNORE`.
+- `Flat File`
+- `Balance by Category`
+- `Monthly Flat`
+- `Monthly Balance`
+- `Roll-forward`
+- `Checks`
+- `Mapping`
+- `UNMAPPED`
+- `SCOPE_EXCLUDED`
+- protected `SRC_*` source-copy tabs
 
-For OCL/monthly records, required roles are `source_record_id`, `period`, `amount`, `source_label`. Optional roles include `source_code`, `entity`, `currency`.
+Children appear before parent subtotals. Parent rows and total OCL are formula-driven. No nonexistent category or period is created just because it appeared in another engagement.
 
-For movement records, `movement_type` is also required. Movement interpretation must use exact reviewed `movement_rules`, for example:
+## Part 2 — Analysis
 
-```json
-{
-  "movement_rules": {
-    "Opening": {"role": "OPENING", "multiplier": 1},
-    "Additions": {"role": "FLOW", "multiplier": 1},
-    "Utilisation": {"role": "FLOW", "multiplier": -1},
-    "Closing": {"role": "CLOSING", "multiplier": 1}
-  }
-}
-```
-
-Use top-level `movement_to_annual` to align movement closing periods to annual/listing periods. Use `monthly_to_annual` for monthly year-end alignments. `expected_annual_periods` and `expected_monthly_periods` may be supplied for deterministic continuity checks.
-
-Source-backed TB/scope checks use exact dataset, period/amount fields and exact filters. They are never keyword-discovered.
-
-Revenue/payroll context is optional. It is used only when the semantic handoff explicitly binds its period and amount fields; absence never blocks the workflow.
-
-## Part 2 — analysis
-
-Part 2 calculates only from the reconciled Part 1 model. Supported evidence includes, when data supports it:
+Part 2 calculates only from the reconciled Part 1 model. Supported evidence may include:
 
 - annual OCL movements;
 - category movements;
@@ -126,41 +165,73 @@ Part 2 calculates only from the reconciled Part 1 model. Supported evidence incl
 - monthly variability;
 - new balances;
 - balances falling to nil;
-- stale monthly balances;
-- reviewed debt-like and one-off classifications;
-- OCL-to-revenue/payroll context ratios when optional context exists.
+- stale balances;
+- reviewed debt-like/one-off classifications;
+- optional OCL-to-revenue or payroll context ratios.
 
-Do not fabricate a business explanation. Deterministic code establishes the numeric observation; an AI host may improve language without changing the evidence.
+Do not fabricate explanations. Numeric evidence comes from deterministic calculations and workbook formulas.
 
-## Part 3 — management questions
+## Part 3 — Management questions
 
-Questions must arise from an actual finding. Do not ask questions for the sake of asking them.
+Questions arise only from actual findings.
 
-- Request one focused operational explanation/evidence item per question.
-- New item: ask what event/calculation gave rise to it.
-- Cliff to nil: ask how it was settled or released.
-- Stale balance: ask whether it remains a valid outstanding obligation.
-- Movement/spike: ask for the primary underlying driver.
-- Concentration: request a breakdown of underlying obligations including settlement timing.
-- Do not ask management to decide whether an item is debt-like, one-off, a purchase-price adjustment or other deal treatment.
-- Do not routinely demand roll-forwards or invoices unless the evidence specifically requires them.
+- Ask one focused operational/evidential point per question.
+- New item: ask what event or calculation gave rise to it.
+- Cliff to nil: ask how it was settled/released.
+- Stale balance: ask whether the obligation remains valid and outstanding.
+- Movement/spike: ask for the primary driver.
+- Concentration: ask for composition and settlement timing.
+- Do not ask management to decide whether something is debt-like, one-off or a purchase-price adjustment.
+- Do not ask questions merely to fill a sheet.
 
-## Part 4 — report
+Questions are embedded in the same `OCL_Databook.xlsx`.
 
-Part 4 produces `output/OCL_Report.pptx` from the same analysis model. It creates only supported slides/tables; unsupported analyses do not create empty slides. The future report styling guide may change presentation without changing financial content.
+## Workbook presentation contract
 
-## Config ownership
+The final workbook styling layer follows the methodology supplied for this project:
 
-`config/` is the human-owned meaning layer: `mapping.csv`, `judgment_scope.csv`, `judgment_wc_debt.csv`, `line_item_notes.csv`, `column_memory.json`, optional revenue/payroll inputs and package-specific `semantic_handoff.json` (not committed).
+- dark blue headers with white text;
+- Arial-style professional body formatting;
+- accounting number formats, negative values in parentheses and zeros as dashes;
+- blue font for source/hardcoded inputs;
+- green font for inter-sheet source links;
+- black font for model calculations;
+- clear parent subtotal and total OCL treatments;
+- green/red/amber/grey control-status presentation;
+- hidden gridlines, freeze panes, sensible widths and print setup;
+- source-copy tabs protected;
+- `UNMAPPED` visibly flagged;
+- excluded scope retained visibly;
+- findings and management questions formatted for review rather than as raw data dumps.
+
+Presentation never changes the financial logic.
+
+## Part 4 — Report
+
+`output/OCL_Report.pptx` is a secondary deliverable built from the same analysis model. Unsupported analyses do not create empty slides. The Excel databook remains the principal product.
+
+## Final QA
+
+After analysis/questions and styling, the workbook is reopened and independently checked for:
+
+- mandatory control/lineage sheets;
+- source-copy protection;
+- missing `Source_Record_ID`/amount/scope/review fields;
+- blocking Python controls;
+- broken `#REF!` formulas;
+- successful workbook reopen.
+
+QA is written under `work/final_qa.json`, not as another principal deliverable.
 
 ## Completion rule
 
 The workflow is complete only when:
 
-1. source/lineage coverage is preserved;
-2. required judgments are reviewed;
-3. all applicable hard controls pass;
-4. unsupported controls are explicitly `NOT_APPLICABLE` rather than fabricated;
-5. the databook reopens cleanly;
-6. Parts 2–4 consume the same reconciled Part 1 model;
-7. `OCL_Databook.xlsx` and `OCL_Report.pptx` are produced without forcing unsupported content.
+1. raw sources remain unchanged;
+2. the standardized publication exists with metadata/manifest/lineage;
+3. every relevant OCL record has explicit disposition;
+4. applicable hard controls pass and unsupported controls are explicit `NOT_APPLICABLE`;
+5. the databook reopens cleanly and passes final QA;
+6. analysis and management questions use the same reconciled model;
+7. `output/OCL_Databook.xlsx` is produced in the required FDD-style format and quality;
+8. the secondary report is produced unless explicitly skipped.

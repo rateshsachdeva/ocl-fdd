@@ -1,17 +1,30 @@
 OCL FDD - START HERE
 ====================
 
-1. Use an approved output from fdd-data-preparation.
-2. Run:
-       python run_all.py --data-prep-output <path-to-output/latest>
-   If the repos are side-by-side, try:
-       python run_all.py
-3. Follow the state printed by the runner:
-   - AWAITING_SEMANTIC_HANDOFF
-   - AWAITING_JUDGMENT_REVIEW
-   - AWAITING_CONTROL_ALIGNMENT
-   - DATABOOK_READY
-4. Do not bypass failed controls or invent balancing values.
-5. Final Part 1 output is output/OCL_Databook.xlsx.
+1. Put the raw client Excel files in:
+       references/source/
 
-For an AI coding host, read SKILL.md and src/ocl_agent/llm/README.md before changing config.
+2. Run from the repository root:
+       python run_all.py
+
+3. The skill will internally:
+       raw files
+         -> fdd-data-preparation
+         -> standardized data + lineage
+         -> OCL scope/mapping/controls
+         -> databook
+         -> analysis
+         -> management questions
+         -> styling
+         -> final QA
+
+4. Principal output:
+       output/OCL_Databook.xlsx
+
+5. Secondary output:
+       output/OCL_Report.pptx
+
+Do not commit client source files. references/source/ is intentionally ignored by Git.
+Do not bypass failed controls or create balancing plugs.
+
+For the detailed contract, read SKILL.md.
