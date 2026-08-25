@@ -300,8 +300,9 @@ def _analysis_sheet(sheet) -> None:
             cell = sheet.cell(row, col)
             if isinstance(cell.value, str) and cell.value.startswith("="):
                 cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK)
-            cell.alignment = Alignment(vertical="top" if wrap else "center", horizontal="right" if _numeric_like(cell) else "left", wrap_text=wrap)
-            if _numeric_like(cell):
+            numeric = _numeric_like(cell)
+            cell.alignment = Alignment(vertical="top" if wrap else "center", horizontal="right" if numeric else "left", wrap_text=wrap)
+            if numeric:
                 if "%" in str(sheet.cell(7, col).value or "") or "Magnitude" == str(sheet.cell(7, col).value or ""):
                     cell.number_format = PERCENT
                 else:
@@ -373,7 +374,9 @@ def _find_header(sheet, value: str) -> int | None:
 
 
 def _numeric_like(cell) -> bool:
-    return isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.startswith("="))
+    if isinstance(cell.value, (int, float)):
+        return True
+    return cell.column > 2 and isinstance(cell.value, str) and cell.value.startswith("=")
 
 
 def _wrapped_lines(sheet, row: int) -> int:
