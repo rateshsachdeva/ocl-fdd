@@ -4,55 +4,59 @@ OCL FDD - START HERE
 1. Put the raw client Excel files in:
        references/source/
 
-2. From the repository root run:
+2. One-time GitHub Copilot CLI setup:
+       copilot --version
+       copilot login --web-flow
+
+   Complete the GitHub sign-in once. If Copilot is provided through an organization
+   or enterprise, the Copilot CLI policy must be enabled by that organization.
+
+3. From the repository root run:
        python run_all.py
 
-3. The workflow is:
+4. The workflow is:
        raw Excel
          -> full fdd-data-preparation
             -> Python profiling
-            -> AI-host dataset understanding + Processing Plan
+            -> GitHub Copilot dataset understanding + Processing Plan
             -> Python deterministic execution + completeness + lineage
          -> published standardized long/flat data
          -> OCL semantic interpretation
          -> OCL judgments + hard controls
          -> Python metrics
-         -> AI-host FDD-partner Deal Issues + Key Findings + Q&A
+         -> GitHub Copilot FDD-partner Deal Issues + Key Findings + Q&A
          -> styling + final QA + PPT
 
-4. Principal output when complete:
+5. Principal output when complete:
        output/OCL_Databook.xlsx
 
-5. Secondary output:
+6. Secondary output:
        output/OCL_Report.pptx
 
 AI CHECKPOINTS
 --------------
-`python run_all.py` now uses `--ai-host auto` by default.
+`python run_all.py` uses GitHub Copilot CLI as the automatic AI host.
 
-If a supported local CLI is installed, available on PATH and already authenticated,
-the root workflow will automatically use it for AI_HOST reasoning checkpoints and
-then continue Python execution. Auto-detection preference is:
+The Python financial core does not call a model API. Copilot is used only for the
+contextual AI reasoning artifacts requested by the workflow. Python continues to
+own source values, calculations, reconciliations, controls and rendering.
 
-       Codex CLI -> Claude Code CLI -> GitHub Copilot CLI
+A Copilot checkpoint counts as complete only when the exact required artifact(s)
+were actually created or updated. Authentication/install failures therefore stop
+safely instead of advancing or looping.
 
-You can select one explicitly:
+If Copilot reports "No authentication information found", run:
 
-       python run_all.py --ai-host codex
-       python run_all.py --ai-host claude
-       python run_all.py --ai-host copilot
+       copilot login --web-flow
 
-If you are already running the workflow from inside an interactive Codex / Claude /
-Copilot agent session, use:
+then rerun:
+
+       python run_all.py
+
+If you deliberately want an already-open interactive agent session to complete an
+AI checkpoint instead of spawning Copilot CLI, use:
 
        python run_all.py --ai-host external
-
-and let that current agent follow AGENTS.md. This avoids spawning a nested agent.
-
-The Python financial core still does not call a model API. The local authenticated
-coding-agent CLI is only used for contextual AI reasoning and narrative artifacts.
-If no supported CLI is installed/authenticated, the workflow safely stops at the
-AI_HOST checkpoint and prints the exact instruction / handoff path as before.
 
 Do not commit client source files. references/source/ is intentionally ignored by Git.
 Do not bypass failed controls or create balancing plugs.

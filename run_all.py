@@ -5,9 +5,9 @@ Normal use:
     python run_all.py
 
 Raw client files are read from references/source/. The workflow advances through
-deterministic Python stages and, when possible, automatically delegates AI_HOST
-reasoning checkpoints to a locally installed/authenticated Codex, Claude Code or
-GitHub Copilot CLI. No model API is embedded in the financial Python core.
+deterministic Python stages and automatically delegates AI_HOST reasoning
+checkpoints to GitHub Copilot CLI when available/authenticated. No model API is
+embedded in the financial Python core.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ocl_agent.ai_host_cli import available_providers, run_ai_host
+from ocl_agent.ai_host_cli import run_ai_host
 from ocl_agent.config import ensure_runtime_folders
 from ocl_agent.end_to_end import run_end_to_end
 from ocl_agent.final_qa import FinalQAError
@@ -29,7 +29,7 @@ from ocl_agent.part1_databook.input_contract import InputContractError
 from ocl_agent.part1_databook.judgments import JudgmentError
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoffError
 
-AI_HOST_CHOICES = ("auto", "codex", "claude", "copilot", "external")
+AI_HOST_CHOICES = ("copilot", "external")
 
 
 def main() -> int:
@@ -44,10 +44,10 @@ def main() -> int:
     parser.add_argument(
         "--ai-host",
         choices=AI_HOST_CHOICES,
-        default="auto",
+        default="copilot",
         help=(
-            "AI host for workflow reasoning checkpoints. 'auto' tries local Codex, Claude Code, then Copilot CLIs; "
-            "'external' preserves checkpoint-only behavior for an already-open coding-agent session."
+            "AI host for workflow reasoning checkpoints. Default is GitHub Copilot CLI. "
+            "Use 'external' only when an already-open agent session will complete checkpoints manually."
         ),
     )
     parser.add_argument(
@@ -61,14 +61,8 @@ def main() -> int:
         parser.error("--max-ai-steps must be at least 1")
 
     paths = ensure_runtime_folders()
-    if args.ai_host == "auto":
-        providers = available_providers()
-        if providers:
-            print("AI host auto-detection: " + ", ".join(providers))
-        else:
-            print("AI host auto-detection: no supported CLI found; AI checkpoints will be surfaced for external completion.")
-    elif args.ai_host != "external":
-        print(f"AI host: {args.ai_host}")
+    if args.ai_host == "copilot":
+        print("AI host: GitHub Copilot CLI")
 
     for ai_step in range(args.max_ai_steps + 1):
         try:
@@ -99,20 +93,17 @@ def main() -> int:
                     )
                     return 2
 
-                host_result = run_ai_host(
-                    result.coordination,
-                    ROOT,
-                    provider=args.ai_host,
-                )
+                host_result = run_ai_host(result.coordination, ROOT)
                 if not host_result.success:
-                    print(f"Automatic AI host unavailable or failed: {host_result.message}")
-                    print(
-                        f"AI host action remains: {action}. You can complete the referenced artifacts in Codex/Claude/Copilot "
-                        "and rerun, or install/authenticate one of the supported CLIs."
-                    )
+                    print(f"Automatic GitHub Copilot host unavailable or failed: {host_result.message}")
+                    if "authentication" in host_result.message.casefold() or "no authentication information" in host_result.message.casefold():
+                        print("One-time setup required: run `copilot login --web-flow`, complete GitHub sign-in, then rerun `python run_all.py`.")
+                    else:
+                        print("Run `copilot --version` to confirm GitHub Copilot CLI is installed and callable, then rerun `python run_all.py`.")
+                    print(f"AI host action remains: {action}. No workflow artifact was accepted, so the financial workflow has not advanced incorrectly.")
                     return 0
 
-                print(f"AI host completed via {host_result.provider}. Resuming workflow...")
+                print("GitHub Copilot completed the AI_HOST checkpoint. Resuming workflow...")
                 continue
 
             if actor == "HUMAN":
