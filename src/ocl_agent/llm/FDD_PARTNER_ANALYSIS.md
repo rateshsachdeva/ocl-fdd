@@ -56,11 +56,14 @@ Prefer formulations such as:
 
 Write the exact JSON file requested in the handoff as `analysis_interpretation.json`.
 
+Copy the `evidence_hash` from `analysis_evidence.json` exactly so Python can prove that the narrative belongs to the current evidence package.
+
 Use this structure:
 
 ```json
 {
   "status": "COMPLETED",
+  "evidence_hash": "copy exactly from analysis_evidence.json",
   "overall_assessment": "One concise partner-level conclusion.",
   "deal_issues": [
     {
@@ -94,6 +97,7 @@ Use this structure:
 Rules:
 
 - `status` must be `COMPLETED`.
+- `evidence_hash` must exactly match the request.
 - Produce 0–6 `deal_issues` and 1–8 `key_findings` where evidence supports them.
 - If there is genuinely no material issue, `deal_issues` may be empty, but `overall_assessment` and at least one `key_findings` row should explicitly state the evidence-based conclusion rather than leaving the workbook blank.
 - `priority` must be `HIGH`, `MEDIUM` or `LOW`.
