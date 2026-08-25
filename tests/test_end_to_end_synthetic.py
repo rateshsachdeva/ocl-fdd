@@ -34,6 +34,9 @@ def _build_package(root: Path) -> Path:
         (_source_id("Annual", 8), "FY25", "VAT payable", "2120", "Entity A", 150),
         (_source_id("Annual", 9), "FY25", "Trade payables", "2000", "Entity A", 500),
     ]
+    # The reference materiality is stated in currency units (100k). Scale this
+    # compact synthetic fixture so the same rules are exercised realistically.
+    annual_rows = [(*row[:-1], row[-1] * 1000) for row in annual_rows]
     _write_csv(root / "ocl_annual.csv", ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount"], annual_rows)
     monthly_rows = []
     monthly_values = {
@@ -41,17 +44,18 @@ def _build_package(root: Path) -> Path:
         "Holiday pay": [200, 180, 190, 205, 210, 220, 215, 225, 235, 240, 245, 250],
         "VAT payable": [100, 90, 105, 95, 110, 125, 120, 130, 140, 135, 145, 150],
     }
+    monthly_values = {label: [value * 1000 for value in values] for label, values in monthly_values.items()}
     codes = {"Bonus accrual": "2100", "Holiday pay": "2110", "VAT payable": "2120"}
     for label, amount in (("Bonus accrual", 300), ("Holiday pay", 200), ("VAT payable", 100)):
-        monthly_rows.append((_source_id("Monthly", len(monthly_rows) + 2), "2024-12", label, codes[label], "Entity A", amount))
+        monthly_rows.append((_source_id("Monthly", len(monthly_rows) + 2), "2024-12", label, codes[label], "Entity A", amount * 1000))
     for month in range(1, 13):
         period = f"2025-{month:02d}"
         for label, values in monthly_values.items():
             monthly_rows.append((_source_id("Monthly", len(monthly_rows) + 2), period, label, codes[label], "Entity A", values[month - 1]))
     _write_csv(root / "ocl_monthly.csv", ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount"], monthly_rows)
-    _write_csv(root / "tb_control.csv", ["Period", "Control", "Amount"], [["FY24", "OCL", 600], ["FY25", "OCL", 850]])
-    _write_csv(root / "revenue_context.csv", ["Period", "Revenue"], [["FY24", 5000], ["FY25", 5600]])
-    _write_csv(root / "payroll_context.csv", ["Period", "Payroll"], [["FY24", 1200], ["FY25", 1400]])
+    _write_csv(root / "tb_control.csv", ["Period", "Control", "Amount"], [["FY24", "OCL", 600000], ["FY25", "OCL", 850000]])
+    _write_csv(root / "revenue_context.csv", ["Period", "Revenue"], [["FY24", 5000000], ["FY25", 5600000]])
+    _write_csv(root / "payroll_context.csv", ["Period", "Payroll"], [["FY24", 1200000], ["FY25", 1400000]])
     outputs = ["ocl_annual.csv", "ocl_monthly.csv", "tb_control.csv", "revenue_context.csv", "payroll_context.csv"]
     (root / "execution_manifest.json").write_text(json.dumps({"execution_id": "SYNTH-001", "final_execution_status": "COMPLETED", "outputs_created": outputs}), encoding="utf-8")
     (root / "databook_metadata.json").write_text(json.dumps({"workflow_run_id": "SYNTH-001", "description": "Synthetic package based on OCL databook control rules"}), encoding="utf-8")
@@ -107,16 +111,23 @@ def test_complete_synthetic_workflow(tmp_path: Path):
     assert any(finding.finding_type == "TOTAL_CHANGE" for finding in analysis.findings)
     assert any(finding.finding_type == "CONCENTRATION" for finding in analysis.findings)
     assert any(finding.finding_type == "DEBT_LIKE" for finding in analysis.findings)
+    assert any(table.key == "movement_review" for table in analysis.tables)
+    assert any(table.key == "seasonality" for table in analysis.tables)
     questions = run_qanda(analysis, part1.databook)
     assert questions
     report = run_report(analysis, questions, output)
     assert report.exists()
     workbook = load_workbook(part1.databook, read_only=True, data_only=False)
     assert "Analysis Summary" in workbook.sheetnames
+    assert "Seasonality" in workbook.sheetnames
+    assert "Item Monthly Charts" in workbook.sheetnames
+    assert "Deal Issues" in workbook.sheetnames
     assert "Key Findings" in workbook.sheetnames
     assert "Management Questions" in workbook.sheetnames
     assert "Monthly Balance" in workbook.sheetnames
     assert "SRC_ocl_annual" in workbook.sheetnames
+    assert workbook["Key Findings"].max_column == 9
+    assert workbook["Management Questions"].cell(1, 1).value == "Theme"
     workbook.close()
     assert len(Presentation(report).slides) >= 4
 
@@ -140,5 +151,7 @@ def test_annual_only_degrades_gracefully(tmp_path: Path):
     report = run_report(analysis, questions, output)
     workbook = load_workbook(part1.databook, read_only=True)
     assert "Monthly Balance" not in workbook.sheetnames
+    assert "Seasonality" not in workbook.sheetnames
+    assert "Item Monthly Charts" not in workbook.sheetnames
     workbook.close()
     assert report.exists()
