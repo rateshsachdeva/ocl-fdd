@@ -5,7 +5,7 @@
 The user experience is one repository and one launcher:
 
 ```text
-references/source/ -> python run_all.py -> output/OCL_Databook.xlsx
+references/source/ -> python run_all.py -> output/OCL_Databook_vN.xlsx + output/OCL_Report_vN.pptx
 ```
 
 The implementation is deliberately split internally:
@@ -17,21 +17,17 @@ Never add client-specific raw-Excel parsing to `ocl_agent`.
 
 ## AI host continuation rule
 
-`python run_all.py` now supports two ways to satisfy `AI_HOST` checkpoints.
+`python run_all.py` supports two ways to satisfy `AI_HOST` checkpoints.
 
 ### Normal PowerShell / terminal use
 
 The default is:
 
 ```text
-python run_all.py --ai-host auto
+python run_all.py
 ```
 
-`auto` looks for an installed/authenticated local CLI in this order:
-
-1. Codex CLI;
-2. Claude Code CLI;
-3. GitHub Copilot CLI.
+Normal terminal use delegates explicit `AI_HOST` checkpoints to the installed/authenticated GitHub Copilot CLI. Python continues to own routine processing, calculations, reconciliations, controls and rendering.
 
 When the workflow returns:
 
@@ -39,27 +35,19 @@ When the workflow returns:
 {"next_actor": "AI_HOST", "must_continue": true}
 ```
 
-the root Python process delegates that one checkpoint to the selected CLI, then resumes the deterministic workflow automatically. The child AI host must not run `python run_all.py` itself.
+the root Python process delegates that one checkpoint to GitHub Copilot CLI, then resumes the deterministic workflow automatically. The child AI host must not run `python run_all.py` itself.
 
-Users can pin a provider with:
-
-```text
-python run_all.py --ai-host codex
-python run_all.py --ai-host claude
-python run_all.py --ai-host copilot
-```
-
-If no supported CLI is installed/authenticated, the workflow safely surfaces the coordination object as before.
+If Copilot CLI is unavailable or unauthenticated, the workflow must stop safely at the checkpoint rather than inventing or bypassing the required artifact.
 
 ### Already-open coding-agent session
 
-If Codex, Claude Code or Copilot is already orchestrating the repository interactively, use:
+If Codex, Claude Code or another capable coding agent is already orchestrating the repository interactively, use:
 
 ```text
 python run_all.py --ai-host external
 ```
 
-This avoids spawning a nested agent. In `external` mode, when `next_actor=AI_HOST` and `must_continue=true`, the current agent session must:
+This avoids spawning a nested Copilot process. In `external` mode, when `next_actor=AI_HOST` and `must_continue=true`, the current agent session must:
 
 1. read `relevant_instruction`;
 2. read `handoff_path`, `run_directory`, review context and any other referenced evidence;
@@ -68,13 +56,17 @@ This avoids spawning a nested agent. In `external` mode, when `next_actor=AI_HOS
 5. rerun `python run_all.py --ai-host external`;
 6. repeat until the workflow reaches `READY`, a genuine `HUMAN` checkpoint, or `FAILED`.
 
+Therefore, when the user says **“run the skill”** from an already-open Codex or Claude Code session, treat that as an instruction to run the repository end to end in `external` mode and autonomously satisfy each `AI_HOST` checkpoint until a genuine human judgment is required or the deliverables are ready.
+
 The common AI checkpoints include:
 
 - `DATASET_UNDERSTANDING`
 - `UNDERSTAND_AND_PLAN`
 - `PROCESSING_PLAN`
+- `CONFIRM_OCL_SEMANTIC_HANDOFF`
+- `INVESTIGATE_OCL_CONTROL_ALIGNMENT` only when a control genuinely requires investigation
 - `WRITE_FDD_PARTNER_ANALYSIS`
-- knowledge-review preparation after publication
+- knowledge-review preparation after publication when requested by the upstream workflow
 
 For `WRITE_FDD_PARTNER_ANALYSIS`, follow `src/ocl_agent/llm/FDD_PARTNER_ANALYSIS.md`. Write Deal Issues, Key Findings and Management Q&A from the supplied Python evidence as an experienced FDD partner. Do not revert to deterministic boilerplate wording and do not leave the sections blank simply because no deterministic headline trigger fired; where there is no material issue, write the explicit evidence-based conclusion requested by the instruction.
 
@@ -120,7 +112,7 @@ Analytical financial figures in Excel should link back to the formula-driven fou
 
 ## Source-package freshness
 
-The upstream data-preparation workflow fingerprints the exact files currently in `references/source/`. A changed, added or removed source file must create/resume the workflow for that new fingerprint. Never reuse an older standardized package merely because `work/data_prep/output/latest` exists. The OCL bridge accepts `latest` only when its execution ID belongs to the current source-bound workflow.
+The upstream data-preparation workflow fingerprints the exact files currently in `references/source/`. A changed, added or removed source file must create/resume the workflow for that new fingerprint. Never reuse an older standardized package merely because an older published output exists. The OCL bridge accepts published output only when its execution ID belongs to the current source-bound workflow.
 
 ## Human checkpoints
 
