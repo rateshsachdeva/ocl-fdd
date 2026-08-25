@@ -26,6 +26,19 @@ def test_copilot_installer_shim_is_not_treated_as_available(monkeypatch):
     assert ai_host_cli._probe_cli("copilot") is False
 
 
+def test_probe_uses_utf8_safe_decoding(monkeypatch):
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return _completed(0, "Copilot CLI 1.0")
+
+    monkeypatch.setattr(ai_host_cli.subprocess, "run", fake_run)
+    assert ai_host_cli._probe_cli("copilot") is True
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
 def test_copilot_command_uses_noninteractive_mode():
     prompt = "complete checkpoint"
     assert ai_host_cli._command("copilot", prompt) == [
@@ -61,6 +74,25 @@ def test_zero_exit_without_required_artifact_is_failure_and_auth_hint(monkeypatc
     assert "required artifact" in result.message
     assert "No authentication information found" in result.message
     assert "copilot login --web-flow" in result.message
+
+
+def test_ai_host_uses_utf8_safe_decoding(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_host_cli.shutil, "which", lambda name: "/fake/copilot" if name == "copilot" else None)
+    monkeypatch.setattr(ai_host_cli, "_probe_cli", lambda executable: True)
+    artifact = tmp_path / "dataset_map.json"
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        artifact.write_text('{"status":"COMPLETED"}', encoding="utf-8")
+        return _completed(0, "completed \ufffd safely")
+
+    monkeypatch.setattr(ai_host_cli.subprocess, "run", fake_run)
+    result = ai_host_cli.run_ai_host({"required_artifacts": [str(artifact)]}, tmp_path)
+
+    assert result.success is True
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
 
 
 def test_success_requires_required_artifact_to_be_created(monkeypatch, tmp_path):
