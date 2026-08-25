@@ -37,9 +37,9 @@ def run_ai_host(
 ) -> AIHostRunResult:
     """Run one AI_HOST checkpoint through GitHub Copilot CLI.
 
-    A run counts as successful only when Copilot exits successfully and the
-    exact checkpoint artifact(s) requested by the coordination contract were
-    actually created or updated.
+    A run counts as successful only when Copilot exits successfully and every
+    exact checkpoint artifact requested by the coordination contract was newly
+    created or updated during this checkpoint.
     """
     repo_root = Path(repo_root).resolve()
     executable = shutil.which("copilot")
@@ -82,12 +82,18 @@ def run_ai_host(
     if required_artifacts:
         after = {path: _artifact_state(path) for path in required_artifacts}
         missing = [str(path) for path, state in after.items() if state is None]
-        progressed = any(before[path] != after[path] for path in required_artifacts)
-        if missing or not progressed:
+        unchanged = [
+            str(path)
+            for path in required_artifacts
+            if after[path] is not None and before[path] == after[path]
+        ]
+        if missing or unchanged:
+            reasons: list[str] = []
             if missing:
-                reason = "required artifact(s) were not created: " + ", ".join(missing)
-            else:
-                reason = "required artifact(s) were not updated"
+                reasons.append("required artifact(s) were not created: " + ", ".join(missing))
+            if unchanged:
+                reasons.append("required artifact(s) were not updated: " + ", ".join(unchanged))
+            reason = "; ".join(reasons)
             if output_tail:
                 reason += f"; CLI output: {output_tail}"
             if "no authentication information" in (completed.stdout or "").casefold():

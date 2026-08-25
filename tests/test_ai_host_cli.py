@@ -135,6 +135,37 @@ def test_preexisting_artifact_must_be_updated(monkeypatch, tmp_path):
     assert "not updated" in result.message
 
 
+def test_every_required_artifact_must_be_created_or_updated(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_host_cli.shutil, "which", lambda name: "/fake/copilot" if name == "copilot" else None)
+    monkeypatch.setattr(ai_host_cli, "_probe_cli", lambda executable: True)
+    dataset_map = tmp_path / "dataset_map.json"
+    processing_plan = tmp_path / "processing_plan.json"
+    approval_questions = tmp_path / "approval_questions.json"
+    for artifact in (dataset_map, processing_plan, approval_questions):
+        artifact.write_text("old", encoding="utf-8")
+
+    def fake_run(command, **kwargs):
+        dataset_map.write_text("new", encoding="utf-8")
+        return _completed(0, "completed only one artifact")
+
+    monkeypatch.setattr(ai_host_cli.subprocess, "run", fake_run)
+    result = ai_host_cli.run_ai_host(
+        {
+            "required_artifacts": [
+                str(dataset_map),
+                str(processing_plan),
+                str(approval_questions),
+            ]
+        },
+        tmp_path,
+    )
+
+    assert result.success is False
+    assert str(processing_plan) in result.message
+    assert str(approval_questions) in result.message
+    assert "not updated" in result.message
+
+
 def test_relative_required_artifacts_are_resolved_from_repo_root(tmp_path: Path):
     paths = ai_host_cli._required_artifact_paths(
         {"required_artifacts": ["work/a.json", "work/a.json", "work/b.json"]},
