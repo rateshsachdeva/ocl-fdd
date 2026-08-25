@@ -6,6 +6,7 @@ writes only the workflow artifacts requested by the coordination contract.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -39,9 +40,11 @@ def run_ai_host(
     """Run one AI_HOST checkpoint through Codex, Claude Code or Copilot CLI.
 
     ``provider=auto`` tries installed providers in stable preference order. An
-    explicit provider attempts only that CLI. The CLI is intentionally given a
-    narrow prompt: read the referenced workflow evidence/instructions, write the
-    requested workflow artifact(s), and do not run the root workflow itself.
+    explicit provider attempts only that CLI. A CLI run counts as successful
+    only when it exits successfully *and* the checkpoint artifacts requested by
+    the coordination contract were actually created or updated. This prevents a
+    CLI bootstrap/authentication failure that returns exit code 0 from causing
+    the root workflow to loop on the same AI checkpoint.
     """
     repo_root = Path(repo_root).resolve()
     if provider not in {"auto", *PROVIDERS}:
@@ -52,6 +55,7 @@ def run_ai_host(
         return AIHostRunResult(None, (), False, "No supported AI CLI is installed on PATH.")
 
     prompt = _build_prompt(coordination)
+    required_artifacts = _required_artifact_paths(coordination, repo_root)
     attempted: list[str] = []
     errors: list[str] = []
 
@@ -60,7 +64,9 @@ def run_ai_host(
         if not executable:
             errors.append(f"{name}: CLI not found on PATH")
             continue
+
         attempted.append(name)
+        before = {path: _artifact_state(path) for path in required_artifacts}
         command = _command(name, executable, prompt)
         try:
             completed = subprocess.run(
@@ -68,6 +74,10 @@ def run_ai_host(
                 cwd=repo_root,
                 check=False,
                 timeout=timeout_seconds,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
         except subprocess.TimeoutExpired:
             errors.append(f"{name}: timed out after {timeout_seconds} seconds")
@@ -80,16 +90,36 @@ def run_ai_host(
                 break
             continue
 
-        if completed.returncode == 0:
-            return AIHostRunResult(
-                name,
-                tuple(attempted),
-                True,
-                f"{name} completed the AI_HOST checkpoint.",
-            )
-        errors.append(f"{name}: exited with code {completed.returncode}")
-        if provider != "auto":
-            break
+        output_tail = _output_tail(completed.stdout)
+        if completed.returncode != 0:
+            detail = f"; {output_tail}" if output_tail else ""
+            errors.append(f"{name}: exited with code {completed.returncode}{detail}")
+            if provider != "auto":
+                break
+            continue
+
+        if required_artifacts:
+            after = {path: _artifact_state(path) for path in required_artifacts}
+            missing = [str(path) for path, state in after.items() if state is None]
+            progressed = any(before[path] != after[path] for path in required_artifacts)
+            if missing or not progressed:
+                if missing:
+                    reason = "required artifact(s) were not created: " + ", ".join(missing)
+                else:
+                    reason = "required artifact(s) were not updated"
+                if output_tail:
+                    reason += f"; CLI output: {output_tail}"
+                errors.append(f"{name}: {reason}")
+                if provider != "auto":
+                    break
+                continue
+
+        return AIHostRunResult(
+            name,
+            tuple(attempted),
+            True,
+            f"{name} completed the AI_HOST checkpoint and produced the required artifact(s).",
+        )
 
     return AIHostRunResult(
         attempted[-1] if attempted else None,
@@ -97,6 +127,46 @@ def run_ai_host(
         False,
         "; ".join(errors) or "AI host did not complete the checkpoint.",
     )
+
+
+def _required_artifact_paths(coordination: dict[str, Any], repo_root: Path) -> tuple[Path, ...]:
+    values: list[str] = []
+    singular = coordination.get("required_artifact")
+    if singular:
+        values.append(str(singular))
+    plural = coordination.get("required_artifacts")
+    if isinstance(plural, (list, tuple)):
+        values.extend(str(item) for item in plural if item)
+
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for value in values:
+        path = Path(value)
+        if not path.is_absolute():
+            path = repo_root / path
+        path = path.resolve()
+        if path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return tuple(paths)
+
+
+def _artifact_state(path: Path) -> str | None:
+    """Return a content fingerprint for a required artifact, or None if absent."""
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _output_tail(output: str | None, limit: int = 500) -> str:
+    text = " ".join((output or "").strip().split())
+    if len(text) <= limit:
+        return text
+    return "..." + text[-limit:]
 
 
 def _build_prompt(coordination: dict[str, Any]) -> str:
