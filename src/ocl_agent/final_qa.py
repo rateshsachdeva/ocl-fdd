@@ -40,28 +40,28 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
 
         if "Checks" in workbook.sheetnames:
             sheet = workbook["Checks"]
-            headers = {str(cell.value): cell.column for cell in sheet[1] if cell.value}
+            header_row, headers = _find_headers(sheet, {"Control_ID", "Python_Status"})
             status_col = headers.get("Python_Status")
             blocking = []
-            if status_col:
-                for row in range(2, sheet.max_row + 1):
+            if status_col and header_row:
+                for row in range(header_row + 1, sheet.max_row + 1):
                     status = str(sheet.cell(row, status_col).value or "").upper()
                     if status in {"FAIL", "REVIEW_REQUIRED"}:
-                        blocking.append(str(sheet.cell(row, 1).value or f"row {row}"))
+                        blocking.append(str(sheet.cell(row, headers.get("Control_ID", 1)).value or f"row {row}"))
             metrics["blocking_controls"] = blocking
             if blocking:
                 issues.append("Blocking controls remain: " + ", ".join(blocking))
 
         if "Flat File" in workbook.sheetnames:
             sheet = workbook["Flat File"]
-            headers = {str(cell.value): cell.column for cell in sheet[1] if cell.value}
             required = ["Source_Record_ID", "Amount", "Scope", "Review_Status"]
+            header_row, headers = _find_headers(sheet, set(required))
             missing_headers = [name for name in required if name not in headers]
             if missing_headers:
                 issues.append("Flat File missing required columns: " + ", ".join(missing_headers))
             incomplete = 0
-            if not missing_headers:
-                for row in range(2, sheet.max_row + 1):
+            if not missing_headers and header_row:
+                for row in range(header_row + 1, sheet.max_row + 1):
                     if not sheet.cell(row, headers["Source_Record_ID"]).value:
                         incomplete += 1
                     if sheet.cell(row, headers["Amount"]).value in (None, ""):
@@ -92,3 +92,11 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
     if issues:
         raise FinalQAError("Final databook QA failed: " + " | ".join(issues))
     return metrics
+
+
+def _find_headers(sheet, required: set[str]) -> tuple[int | None, dict[str, int]]:
+    for row in range(1, min(sheet.max_row, 12) + 1):
+        headers = {str(sheet.cell(row, col).value): col for col in range(1, sheet.max_column + 1) if sheet.cell(row, col).value not in (None, "")}
+        if required <= set(headers):
+            return row, headers
+    return None, {}
