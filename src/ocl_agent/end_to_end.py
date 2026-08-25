@@ -1,7 +1,7 @@
 """Single-repository end-to-end OCL workflow.
 
-Raw Excel is owned by the full fdd-data-preparation workflow.  OCL starts only
-from its published standardized package.  AI-host checkpoints are surfaced as
+Raw Excel is owned by the full fdd-data-preparation workflow. OCL starts only
+from its published standardized package. AI-host checkpoints are surfaced as
 explicit coordination instructions rather than replaced with layout-specific
 Python guesses.
 """
@@ -18,8 +18,13 @@ from ocl_agent.config import RepoPaths
 from ocl_agent.data_prep_bridge import run_full_data_preparation
 from ocl_agent.final_qa import validate_final_databook
 from ocl_agent.part1_databook.run import Part1Result, run_part1
+from ocl_agent.part2_analysis.ai_interpretation import (
+    AnalysisInterpretationError,
+    load_analysis_interpretation,
+    write_analysis_request,
+)
+from ocl_agent.part2_analysis.ai_render import apply_partner_interpretation
 from ocl_agent.part2_analysis.run import run_analysis
-from ocl_agent.part3_qanda.run import run_qanda
 from ocl_agent.part4_report.run import run_report
 from ocl_agent.workbook_style import apply_workbook_style
 
@@ -46,14 +51,7 @@ def run_end_to_end(
     part1_only: bool = False,
     skip_report: bool = False,
 ) -> EndToEndResult:
-    """Advance raw source -> full data prep -> OCL -> final deliverables.
-
-    Normal use passes no ``data_prep_output``.  The full embedded
-    fdd-data-preparation state machine is then advanced.  If it requests an
-    AI-host or human checkpoint, this function returns that coordination state.
-    An existing published standardized package can still be supplied explicitly
-    for compatibility and testing.
-    """
+    """Advance raw source -> full data prep -> OCL -> final deliverables."""
     runtime_work = paths.output.parent / "work"
     warnings: list[str] = []
 
@@ -72,7 +70,8 @@ def run_end_to_end(
 
     assert data_prep_output is not None
     package_id = _package_id(data_prep_output)
-    runtime_config = _prepare_package_config(paths.config, runtime_work / "ocl_config" / _safe_name(package_id))
+    safe_package_id = _safe_name(package_id)
+    runtime_config = _prepare_package_config(paths.config, runtime_work / "ocl_config" / safe_package_id)
 
     part1 = run_part1(data_prep_output, runtime_config, paths.output)
     if part1.state != "DATABOOK_READY" or not part1.databook or not part1.build:
@@ -99,18 +98,71 @@ def run_end_to_end(
             runtime_config=runtime_config,
         )
 
+    # Python calculates all metrics and writes the formula-linked analysis layer.
     analysis = run_analysis(part1.build.records, part1.databook, package=part1.package, handoff=part1.handoff)
-    questions = run_qanda(analysis, part1.databook)
+
+    # The active coding AI now performs the qualitative FDD-partner interpretation
+    # from a hash-bound evidence package. It writes Deal Issues, Key Findings and
+    # management Q&A; Python validates the artifact before rendering it.
+    analysis_dir = runtime_work / "analysis" / safe_package_id
+    request_path = analysis_dir / "analysis_evidence.json"
+    interpretation_path = analysis_dir / "analysis_interpretation.json"
+    instruction_path = paths.root / "src" / "ocl_agent" / "llm" / "FDD_PARTNER_ANALYSIS.md"
+    write_analysis_request(
+        analysis,
+        request_path,
+        required_artifact=interpretation_path,
+        instruction_path=instruction_path,
+    )
+
+    if not interpretation_path.exists():
+        return EndToEndResult(
+            "AWAITING_ANALYSIS_INTERPRETATION",
+            data_prep_output,
+            part1=part1,
+            databook=part1.databook,
+            findings=len(analysis.findings),
+            warnings=tuple(warnings),
+            coordination=_analysis_coordination(request_path, interpretation_path, instruction_path),
+            runtime_config=runtime_config,
+        )
+
+    try:
+        interpretation = load_analysis_interpretation(interpretation_path, request_path)
+    except AnalysisInterpretationError as error:
+        coordination = _analysis_coordination(request_path, interpretation_path, instruction_path)
+        coordination["validation_error"] = str(error)
+        coordination["message"] = (
+            "The FDD-partner analysis artifact is missing, stale or invalid. Rewrite it from the current evidence "
+            "package; do not alter or recalculate Python metrics."
+        )
+        return EndToEndResult(
+            "AWAITING_ANALYSIS_INTERPRETATION",
+            data_prep_output,
+            part1=part1,
+            databook=part1.databook,
+            findings=len(analysis.findings),
+            warnings=tuple(warnings),
+            coordination=coordination,
+            runtime_config=runtime_config,
+        )
+
+    questions = apply_partner_interpretation(part1.databook, analysis, interpretation)
     apply_workbook_style(part1.databook)
     qa = validate_final_databook(part1.databook, qa_path)
-    report = None if skip_report else run_report(analysis, questions, paths.output)
+    report = None if skip_report else run_report(
+        analysis,
+        questions,
+        paths.output,
+        partner_interpretation=interpretation,
+    )
     return EndToEndResult(
         "READY",
         data_prep_output,
         part1=part1,
         databook=part1.databook,
         report=report,
-        findings=len(analysis.findings),
+        findings=len(interpretation.get("key_findings") or []),
         questions=len(questions),
         qa=qa,
         warnings=tuple(warnings),
@@ -128,6 +180,24 @@ def _normalize_coordination(coordination: dict[str, Any], raw_status: dict[str, 
     if raw_status.get("run_directory"):
         result.setdefault("run_directory", raw_status["run_directory"])
     return result
+
+
+def _analysis_coordination(request_path: Path, interpretation_path: Path, instruction_path: Path) -> dict[str, Any]:
+    return {
+        "source": "ocl_agent",
+        "next_actor": "AI_HOST",
+        "next_action": "WRITE_FDD_PARTNER_ANALYSIS",
+        "relevant_instruction": str(instruction_path),
+        "handoff_path": str(request_path),
+        "required_artifacts": [str(interpretation_path)],
+        "must_continue": True,
+        "resume_command": "python run_all.py",
+        "message": (
+            "Review the validated Python metrics as an experienced FDD partner and write evidence-backed Deal Issues, "
+            "Key Findings and Management Q&A. Do not recalculate or invent financial values; continue automatically "
+            "after writing the artifact."
+        ),
+    }
 
 
 def _ocl_coordination(part1: Part1Result, runtime_config: Path, repo_root: Path) -> dict[str, Any]:
