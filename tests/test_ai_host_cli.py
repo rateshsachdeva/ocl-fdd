@@ -39,7 +39,7 @@ def test_probe_uses_utf8_safe_decoding(monkeypatch):
     assert captured["errors"] == "replace"
 
 
-def test_copilot_command_uses_noninteractive_mode_with_bounded_python_inspection():
+def test_copilot_command_is_noninteractive_and_read_write_only():
     prompt = "complete checkpoint"
     assert ai_host_cli._command("copilot", prompt) == [
         "copilot",
@@ -47,7 +47,7 @@ def test_copilot_command_uses_noninteractive_mode_with_bounded_python_inspection
         prompt,
         "-s",
         "--no-ask-user",
-        "--allow-tool=read,write,shell(python:*),shell(python3:*),shell(py:*)",
+        "--allow-tool=read,write",
     ]
 
 
@@ -146,7 +146,7 @@ def test_relative_required_artifacts_are_resolved_from_repo_root(tmp_path: Path)
     )
 
 
-def test_ai_host_prompt_preserves_financial_boundary_and_limits_python_to_inspection():
+def test_ai_host_prompt_preserves_financial_boundary_and_forbids_nested_execution():
     prompt = ai_host_cli._build_prompt(
         {
             "next_actor": "AI_HOST",
@@ -156,6 +156,7 @@ def test_ai_host_prompt_preserves_financial_boundary_and_limits_python_to_inspec
     )
     assert "Do NOT edit production code" in prompt
     assert "Do NOT invent or recalculate financial amounts" in prompt
-    assert "read-only inspection or validation" in prompt
-    assert "Do NOT run python run_all.py yourself" in prompt
+    assert "already prepared the deterministic evidence" in prompt
+    assert "Do NOT run Python, shell commands, git commands" in prompt
+    assert "Do NOT run python run_all.py" not in prompt
     assert "FDD partner" in prompt
