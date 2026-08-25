@@ -1,7 +1,8 @@
 """AI-host handoff for FDD partner-level OCL interpretation.
 
-Python prepares and validates evidence.  The active coding AI writes narrative
-judgment only; it never recalculates or overrides financial metrics.
+Python prepares and validates evidence. The active coding AI writes narrative
+judgment and management questions only; it never recalculates or overrides
+financial metrics.
 """
 from __future__ import annotations
 
@@ -53,7 +54,8 @@ def write_analysis_request(
             "Think and write as an experienced FDD partner.",
             "Use only supplied evidence and reconciled OCL outputs.",
             "Do not recalculate, invent or override financial values or materiality.",
-            "Do not create filler findings merely to populate a sheet.",
+            "Write Deal Issues, Key Findings and Management Q&A through the active AI host.",
+            "Do not create filler findings or questions merely to populate a sheet.",
             "If no material issue is supported, state that conclusion explicitly rather than leaving the output blank.",
         ],
     }
@@ -83,14 +85,17 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
 
     deal_issues = payload.get("deal_issues")
     key_findings = payload.get("key_findings")
-    if not isinstance(deal_issues, list) or not isinstance(key_findings, list):
-        raise AnalysisInterpretationError("deal_issues and key_findings must be JSON arrays.")
+    questions = payload.get("management_questions")
+    if not isinstance(deal_issues, list) or not isinstance(key_findings, list) or not isinstance(questions, list):
+        raise AnalysisInterpretationError("deal_issues, key_findings and management_questions must be JSON arrays.")
     if len(deal_issues) > 6:
         raise AnalysisInterpretationError("Use no more than 6 deal issues.")
     if not key_findings:
         raise AnalysisInterpretationError("At least one key finding/conclusion is required so the workbook is never blank.")
     if len(key_findings) > 8:
         raise AnalysisInterpretationError("Use no more than 8 key findings.")
+    if len(questions) > 8:
+        raise AnalysisInterpretationError("Use no more than 8 management questions.")
 
     valid_refs = set(request.get("valid_evidence_refs") or [])
     valid_findings = {
@@ -113,13 +118,24 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
         _validate_item(
             item,
             kind="key finding",
-            required=("id", "area", "metric", "period_item", "so_what", "evidence", "materiality", "ask_management"),
+            required=("id", "area", "metric", "period_item", "so_what", "evidence", "materiality"),
             valid_refs=valid_refs,
             valid_findings=valid_findings,
         )
         materiality = str(item.get("materiality") or "").upper()
         if materiality not in {"MATERIAL", "NOTABLE", "NO_MATERIAL_ISSUE"}:
             raise AnalysisInterpretationError("Key finding materiality must be MATERIAL, NOTABLE or NO_MATERIAL_ISSUE.")
+    for item in questions:
+        _validate_item(
+            item,
+            kind="management question",
+            required=("id", "theme", "question", "evidence", "priority"),
+            valid_refs=valid_refs,
+            valid_findings=valid_findings,
+        )
+        priority = str(item.get("priority") or "").upper()
+        if priority not in {"HIGH", "MEDIUM", "LOW"}:
+            raise AnalysisInterpretationError("Management question priority must be HIGH, MEDIUM or LOW.")
     return payload
 
 
