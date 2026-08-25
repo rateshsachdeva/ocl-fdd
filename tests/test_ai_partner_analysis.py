@@ -113,5 +113,5 @@ def test_ai_partner_render_never_leaves_deal_issues_key_findings_or_qanda_blank(
     assert wb["Deal Issues"]["A4"].value == "No material deal issue identified from the available evidence"
     assert wb["Deal Issues"]["A5"].value
     assert wb["Key Findings"]["B8"].value == "KF_01"
-    assert "No material management question" in wb["Q&A"]["D8"].value
+    assert "No material management question" in wb["Q&A"]["C8"].value
     wb.close()
