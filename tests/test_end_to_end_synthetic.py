@@ -9,6 +9,7 @@ from ocl_agent.part1_databook.run import run_part1
 from ocl_agent.part2_analysis.run import run_analysis
 from ocl_agent.part3_qanda.run import run_qanda
 from ocl_agent.part4_report.run import run_report
+from ocl_agent.workbook_style import apply_workbook_style
 
 
 def _write_csv(path: Path, headers, rows):
@@ -34,8 +35,6 @@ def _build_package(root: Path) -> Path:
         (_source_id("Annual", 8), "FY25", "VAT payable", "2120", "Entity A", 150),
         (_source_id("Annual", 9), "FY25", "Trade payables", "2000", "Entity A", 500),
     ]
-    # The reference materiality is stated in currency units (100k). Scale this
-    # compact synthetic fixture so the same rules are exercised realistically.
     annual_rows = [(*row[:-1], row[-1] * 1000) for row in annual_rows]
     _write_csv(root / "ocl_annual.csv", ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount"], annual_rows)
     monthly_rows = []
@@ -115,19 +114,24 @@ def test_complete_synthetic_workflow(tmp_path: Path):
     assert any(table.key == "seasonality" for table in analysis.tables)
     questions = run_qanda(analysis, part1.databook)
     assert questions
+    apply_workbook_style(part1.databook)
     report = run_report(analysis, questions, output)
     assert report.exists()
-    workbook = load_workbook(part1.databook, read_only=True, data_only=False)
+    workbook = load_workbook(part1.databook, read_only=False, data_only=False)
+    expected_front = ["Deal Issues", "Key Findings", "Q&A", "Checks", "Balance by Category"]
+    assert workbook.sheetnames[:5] == expected_front
     assert "Analysis Summary" in workbook.sheetnames
     assert "Seasonality" in workbook.sheetnames
     assert "Item Monthly Charts" in workbook.sheetnames
-    assert "Deal Issues" in workbook.sheetnames
-    assert "Key Findings" in workbook.sheetnames
-    assert "Management Questions" in workbook.sheetnames
     assert "Monthly Balance" in workbook.sheetnames
     assert "SRC_ocl_annual" in workbook.sheetnames
-    assert workbook["Key Findings"].max_column == 9
-    assert workbook["Management Questions"].cell(1, 1).value == "Theme"
+    assert workbook["Key Findings"]["A1"].value == "TargetCo - Other Current Liabilities"
+    assert workbook["Key Findings"]["B7"].value == "ID"
+    assert workbook["Q&A"]["B7"].value == "#"
+    assert workbook["Flat File"]["A2"].value == "Source_Dataset"
+    assert workbook["Balance by Category"]["B7"].value == "Category"
+    assert workbook["Key Findings"]["A1"].font.size == 14
+    assert workbook["Key Findings"]["B6"].fill.fgColor.rgb.endswith("00338D")
     workbook.close()
     assert len(Presentation(report).slides) >= 4
 
@@ -148,10 +152,12 @@ def test_annual_only_degrades_gracefully(tmp_path: Path):
     assert part1.state == "DATABOOK_READY"
     analysis = run_analysis(part1.build.records, part1.databook)
     questions = run_qanda(analysis, part1.databook)
+    apply_workbook_style(part1.databook)
     report = run_report(analysis, questions, output)
     workbook = load_workbook(part1.databook, read_only=True)
     assert "Monthly Balance" not in workbook.sheetnames
     assert "Seasonality" not in workbook.sheetnames
     assert "Item Monthly Charts" not in workbook.sheetnames
+    assert "Q&A" in workbook.sheetnames
     workbook.close()
     assert report.exists()

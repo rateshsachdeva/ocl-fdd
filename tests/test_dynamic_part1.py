@@ -25,8 +25,10 @@ def test_part1_renders_source_linked_dynamic_databook(tmp_path: Path):
     workbook=load_workbook(result.databook,data_only=False)
     source=[name for name in workbook.sheetnames if name.startswith('SRC_')][0]
     assert workbook[source].protection.sheet is True
-    assert workbook['Flat File']['N2'].value==f"='{source}'!E2"
-    assert workbook['Balance by Category']['B2'].value.startswith('=SUMIFS(')
+    assert workbook['Flat File']['N3'].value==f"='{source}'!E2"
+    assert workbook['Flat File']['A2'].value=='Source_Dataset'
+    assert workbook['Balance by Category']['B7'].value=='Category'
+    assert workbook['Balance by Category']['C8'].value.startswith('=SUMIFS(')
 
 
 def test_part1_uses_actual_annual_and_monthly_periods_and_tb_control(tmp_path: Path):

@@ -4,11 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import load_workbook
-from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
 
 from ocl_agent.part3_qanda.engine import build_questions
 from ocl_agent.schemas import AnalysisResult, ManagementQuestion
+
+PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 def run_qanda(analysis: AnalysisResult, databook_path: Path) -> tuple[ManagementQuestion, ...]:
@@ -19,29 +19,29 @@ def run_qanda(analysis: AnalysisResult, databook_path: Path) -> tuple[Management
 
 def _embed_questions(path: Path, questions: tuple[ManagementQuestion, ...], analysis: AnalysisResult) -> None:
     workbook = load_workbook(path)
-    if "Management Questions" in workbook.sheetnames:
-        del workbook["Management Questions"]
-    sheet = workbook.create_sheet("Management Questions")
+    for name in ("Management Questions", "Q&A"):
+        if name in workbook.sheetnames:
+            del workbook[name]
+    sheet = workbook.create_sheet("Q&A")
+    sheet["A1"] = PROJECT_LABEL
+    sheet["A2"] = "Management Q&A"
+    sheet["B6"] = "Material management questions arising from the OCL analysis"
+    headers = ["#", "Theme", "Question", "Evidence", "Management response"]
+    for column, value in enumerate(headers, start=2):
+        sheet.cell(7, column, value)
+
     finding_by_id = {finding.finding_id: finding for finding in analysis.findings}
-    sheet.append(["Theme", "Priority", "Question", "Evidence", "Why This Matters", "Response", "Linked Finding"])
-    for item in sorted(questions, key=lambda q: (_theme(finding_by_id.get(q.linked_finding_id)), q.priority, q.question)):
+    ordered = sorted(questions, key=lambda q: (_theme(finding_by_id.get(q.linked_finding_id)), q.question))
+    for number, item in enumerate(ordered, start=1):
         finding = finding_by_id.get(item.linked_finding_id)
-        sheet.append([
-            _theme(finding),
-            item.priority,
-            item.question,
-            _evidence(finding),
-            item.rationale,
-            "",
-            item.linked_finding_id,
-        ])
+        row = number + 7
+        values = [number, _theme(finding), item.question, _evidence(finding, item), ""]
+        for column, value in enumerate(values, start=2):
+            sheet.cell(row, column, value)
+
     sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "A2"
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    for column in range(1, sheet.max_column + 1):
-        width = min(65, max(14, max(len(str(sheet.cell(row, column).value or "")) for row in range(1, min(sheet.max_row, 150) + 1)) + 2))
-        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.freeze_panes = "B8"
+    sheet.column_dimensions["A"].width = 5
     workbook.save(path)
 
 
@@ -63,8 +63,11 @@ def _theme(finding) -> str:
     }.get(finding.finding_type, "Other OCL matters")
 
 
-def _evidence(finding) -> str:
+def _evidence(finding, question: ManagementQuestion) -> str:
     if finding is None:
-        return ""
+        return question.rationale
     references = ", ".join(finding.evidence_references)
-    return finding.text + (f" | References: {references}" if references else "")
+    parts = [finding.text, question.rationale]
+    if references:
+        parts.append(f"References: {references}")
+    return " | ".join(part for part in parts if part)

@@ -70,8 +70,9 @@ def test_explicit_movement_rules_produce_rollforward(tmp_path: Path):
     workbook = load_workbook(result.databook, data_only=False, read_only=True)
     assert "Roll-forward" in workbook.sheetnames
     sheet = workbook["Roll-forward"]
-    assert sheet["F2"].value == "=C2+D2"
-    assert sheet["G2"].value == "=F2-E2"
+    assert sheet["B7"].value == "Category"
+    assert sheet["G8"].value == "=D8+E8"
+    assert sheet["H8"].value == "=G8-F8"
     workbook.close()
 
 
