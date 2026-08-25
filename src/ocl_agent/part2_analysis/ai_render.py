@@ -1,7 +1,7 @@
-"""Render validated AI-host narrative into Deal Issues and Key Findings.
+"""Render validated AI-host narrative into Deal Issues, Key Findings and Q&A.
 
-All financial figures remain linked to deterministic workbook schedules.  The AI
-host supplies only interpretation and wording.
+All financial figures remain linked to deterministic workbook schedules. The AI
+host supplies interpretation and question wording only.
 """
 from __future__ import annotations
 
@@ -11,23 +11,29 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font
 
 from ocl_agent.part2_analysis.run import PROJECT_LABEL, _analysis_sheet, _finding_formula, _finish_sheet
-from ocl_agent.schemas import AnalysisResult
+from ocl_agent.schemas import AnalysisResult, ManagementQuestion
 
 
-def apply_partner_interpretation(path: Path, result: AnalysisResult, interpretation: dict) -> Path:
+def apply_partner_interpretation(
+    path: Path,
+    result: AnalysisResult,
+    interpretation: dict,
+) -> tuple[ManagementQuestion, ...]:
     path = Path(path)
     workbook = load_workbook(path)
-    for name in ("Deal Issues", "Key Findings"):
+    for name in ("Deal Issues", "Key Findings", "Management Questions", "Q&A"):
         if name in workbook.sheetnames:
             del workbook[name]
 
     finding_by_id = {item.finding_id: item for item in result.findings}
     _write_deal_issues(workbook, finding_by_id, interpretation)
     _write_key_findings(workbook, finding_by_id, interpretation)
+    questions = _write_qanda(workbook, interpretation)
     _finish_sheet(workbook["Deal Issues"])
     _finish_sheet(workbook["Key Findings"])
+    _finish_sheet(workbook["Q&A"])
     workbook.save(path)
-    return path
+    return questions
 
 
 def _write_deal_issues(workbook, finding_by_id: dict, interpretation: dict) -> None:
@@ -85,7 +91,41 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
             item["so_what"],
             item["evidence"],
             item["materiality"],
-            item["ask_management"],
+            item.get("ask_management") or "",
         ]
         for col, value in enumerate(values, start=2):
             sheet.cell(row, col, value)
+
+
+def _write_qanda(workbook, interpretation: dict) -> tuple[ManagementQuestion, ...]:
+    sheet = _analysis_sheet(workbook, "Q&A", "FDD partner questions arising from validated OCL evidence")
+    headers = ["#", "Theme", "Question", "Evidence", "Management response"]
+    for col, value in enumerate(headers, start=2):
+        sheet.cell(7, col, value)
+
+    output: list[ManagementQuestion] = []
+    items = interpretation.get("management_questions") or []
+    if not items:
+        sheet.cell(8, 2, "-")
+        sheet.cell(8, 3, "No material management question was identified from the available evidence.")
+        sheet.cell(8, 4, str(interpretation.get("overall_assessment") or ""))
+        return ()
+
+    for number, item in enumerate(items, start=1):
+        row = number + 7
+        sheet.cell(row, 2, number)
+        sheet.cell(row, 3, item["theme"])
+        sheet.cell(row, 4, item["question"])
+        sheet.cell(row, 5, item["evidence"])
+        sheet.cell(row, 6, "")
+        output.append(
+            ManagementQuestion(
+                question_id=str(item["id"]),
+                question=str(item["question"]),
+                rationale=str(item["evidence"]),
+                evidence_references=tuple(str(ref) for ref in item.get("evidence_refs") or []),
+                linked_finding_id=(str(item["linked_finding_id"]) if item.get("linked_finding_id") else None),
+                priority=str(item.get("priority") or "MEDIUM").upper(),
+            )
+        )
+    return tuple(output)
