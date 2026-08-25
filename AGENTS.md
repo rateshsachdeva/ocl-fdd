@@ -34,31 +34,40 @@ then **do not stop and ask the user to manually perform that internal checkpoint
 5. rerun `python run_all.py`;
 6. repeat until the workflow reaches `READY`, a genuine `HUMAN` checkpoint, or `FAILED`.
 
-The full fdd-data-preparation AI checkpoints commonly include:
+The common AI checkpoints include:
 
 - `DATASET_UNDERSTANDING`
 - `UNDERSTAND_AND_PLAN`
 - `PROCESSING_PLAN`
+- `WRITE_FDD_PARTNER_ANALYSIS`
 - knowledge-review preparation after publication
 
-Use the full runtime's own instructions and schemas. Do not replace them with a header-alias parser.
+For `WRITE_FDD_PARTNER_ANALYSIS`, follow `src/ocl_agent/llm/FDD_PARTNER_ANALYSIS.md`. Write Deal Issues, Key Findings and Management Q&A from the supplied Python evidence as an experienced FDD partner. Do not revert to deterministic boilerplate wording and do not leave the sections blank simply because no deterministic headline trigger fired; where there is no material issue, write the explicit evidence-based conclusion requested by the instruction.
+
+Use the full data-preparation runtime's own instructions and schemas. Do not replace them with a header-alias parser.
 
 ## Analysis boundary
 
-The analysis layer follows a strict three-layer flow:
+The analysis layer follows this flow:
 
 ```text
-formula-linked foundation -> Python metrics -> evidence-led findings / Excel analysis / Q&A
+formula-linked foundation
+        -> Python metrics / materiality / reconciliations
+        -> AI_HOST FDD-partner interpretation
+        -> Deal Issues + Key Findings + Q&A
+        -> deterministic workbook/PPT rendering
 ```
 
-Python owns all analytical numbers and calculates them once from the reconciled OCL model. AI may improve the explanation or wording of the "so what", but it must never recalculate, override or invent an amount, percentage, classification or materiality result.
+Python owns all analytical numbers and calculates them once from the reconciled OCL model. The AI host owns qualitative FDD interpretation and question wording, but it must never recalculate, override or invent an amount, percentage, classification or materiality result.
 
-Materiality has two levels:
+The AI-host mindset is an experienced FDD partner: focus on deal implications, normalized working capital, net debt/equity value, QoE, representativeness of closing balances, validity/completeness, settlement/release risk and the specific facts still needed from management. Avoid robotic variance commentary and filler questions.
+
+Materiality has two deterministic review levels:
 
 - **Databook review:** absolute movement >= 100,000 **OR** percentage movement >= 10%.
-- **Findings / Q&A:** absolute movement >= 100,000 **AND** percentage movement >= 30%.
+- **Headline trigger:** absolute movement >= 100,000 **AND** percentage movement >= 30%.
 
-The broader threshold keeps the workbook analytically complete; the stricter threshold keeps findings and management questions focused.
+These thresholds guide evidence prioritization. They do not authorize the AI host to invent issues; nor should an evidence-supported transaction-relevant observation be hidden merely because it is not a deterministic headline trigger. Such observations must be clearly presented as notable rather than as an unsupported conclusion.
 
 Where the underlying data supports them, the workbook should expose:
 
@@ -69,9 +78,15 @@ Where the underlying data supports them, the workbook should expose:
 - Item Monthly Charts with monthly balances and LTM 12-month average;
 - Deal Issues;
 - structured Key Findings;
-- Management Questions grouped by commercial theme.
+- Q&A grouped by commercial theme.
 
-Do not create a tab or finding when the required source evidence does not exist. Analytical financial figures in Excel should link back to the formula-driven foundation wherever practicable.
+Management questions must be focused factual questions. Do not ask management to decide whether an item should be debt-like, working capital or a QoE adjustment. Ask for the underlying facts that allow the deal team to reach that conclusion.
+
+Analytical financial figures in Excel should link back to the formula-driven foundation wherever practicable.
+
+## Source-package freshness
+
+The upstream data-preparation workflow fingerprints the exact files currently in `references/source/`. A changed, added or removed source file must create/resume the workflow for that new fingerprint. Never reuse an older standardized package merely because `work/data_prep/output/latest` exists. The OCL bridge accepts `latest` only when its execution ID belongs to the current source-bound workflow.
 
 ## Human checkpoints
 

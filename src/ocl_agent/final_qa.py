@@ -80,6 +80,25 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
         if unprotected:
             issues.append("Source-copy tabs are not protected: " + ", ".join(unprotected))
 
+        # In a full analysis run these sheets are AI-host authored from a
+        # validated evidence package. If they exist, READY must never publish
+        # them as empty placeholders. Explicit "no material issue/question"
+        # conclusions are substantive and therefore pass this check.
+        narrative_checks = {
+            "Deal Issues": 4,
+            "Key Findings": 8,
+            "Q&A": 8,
+        }
+        narrative_status: dict[str, bool] = {}
+        for name, start_row in narrative_checks.items():
+            if name not in workbook.sheetnames:
+                continue
+            populated = _has_substantive_content(workbook[name], start_row)
+            narrative_status[name] = populated
+            if not populated:
+                issues.append(f"{name} exists but contains no substantive analysis content.")
+        metrics["narrative_sections_populated"] = narrative_status
+
         metrics["status"] = "PASS" if not issues else "FAIL"
         metrics["issues"] = issues
     finally:
@@ -100,3 +119,12 @@ def _find_headers(sheet, required: set[str]) -> tuple[int | None, dict[str, int]
         if required <= set(headers):
             return row, headers
     return None, {}
+
+
+def _has_substantive_content(sheet, start_row: int) -> bool:
+    for row in range(start_row, sheet.max_row + 1):
+        for col in range(1, sheet.max_column + 1):
+            value = sheet.cell(row, col).value
+            if value not in (None, ""):
+                return True
+    return False

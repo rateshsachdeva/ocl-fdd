@@ -65,6 +65,11 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     instruction/handoff paths returned by the upstream workflow, then rerun the
     top-level OCL command. Python never substitutes a header-guessing parser for
     that reasoning step.
+
+    ``output/latest`` is reusable only when its execution ID matches the current
+    source-bound workflow. This lets later OCL/AI reruns reuse the same published
+    package, while a changed source fingerprint can never silently inherit a
+    previous package's output.
     """
     repo_root = Path(repo_root).resolve()
     source_dir = Path(source_dir).resolve()
@@ -88,13 +93,32 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     upstream_state = str(status.get("state") or "UNKNOWN")
     coordination = _coordination_from_status(status)
     run_id = status.get("run_id")
+    current_execution_id = str(status.get("execution_id") or "")
     latest = output_root / "latest"
     manifest = _read_json(latest / "execution_manifest.json")
     published_status = str(manifest.get("final_execution_status") or "")
-    standardized_output = latest if latest.is_dir() and published_status in PUBLISHABLE_STATUSES else None
+    published_execution_id = str(manifest.get("execution_id") or "")
+
+    # Critical freshness rule. The upstream workflow fingerprints all current
+    # source files and creates/resumes the matching workflow. We then bind
+    # output/latest to that exact workflow execution ID. A newly changed source
+    # package has no matching execution ID until it has been processed, so an old
+    # latest folder cannot leak into the new OCL run.
+    latest_belongs_to_current_run = bool(
+        current_execution_id
+        and published_execution_id
+        and current_execution_id == published_execution_id
+    )
+    standardized_output = (
+        latest
+        if latest_belongs_to_current_run
+        and latest.is_dir()
+        and published_status in PUBLISHABLE_STATUSES
+        else None
+    )
 
     warnings: list[str] = []
-    if published_status == "COMPLETED_WITH_WARNINGS":
+    if standardized_output is not None and published_status == "COMPLETED_WITH_WARNINGS":
         warnings.append("fdd-data-preparation published with warnings; see execution_manifest.json and databook_metadata.json.")
     if standardized_output is not None:
         try:

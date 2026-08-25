@@ -26,7 +26,7 @@ The AI host may interpret:
 - source-present category/hierarchy proposals;
 - management and FDD WC/debt-like view proposals;
 - normal/one-off proposals;
-- evidence-based wording of findings and management questions.
+- FDD-partner-level Deal Issues, Key Findings and Management Q&A from validated Python evidence.
 
 ### Deterministic Python owns
 
@@ -36,7 +36,8 @@ The AI host may interpret:
 - controls and reconciliation;
 - roll-forward math;
 - monthly/annual tie checks;
-- final workbook rendering and QA.
+- materiality metrics;
+- final workbook/PPT rendering and QA.
 
 ## Coordination rule
 
@@ -50,8 +51,8 @@ When:
 
 an agent host should continue automatically:
 
-1. read this file plus the referenced `handoff_path`, `review_context`, `review_workbook`, upstream `databook_metadata.json`, `execution_manifest.json`, `lineage.csv` and relevant standardized CSV samples;
-2. create/update the requested artifact in the package-specific runtime config directory printed by the runner;
+1. read the exact `relevant_instruction` and `handoff_path`;
+2. create/update the requested artifact;
 3. do not overwrite an existing reviewed human decision;
 4. rerun `python run_all.py`;
 5. repeat until `READY`, a genuine `HUMAN` checkpoint or `FAILED`.
@@ -98,11 +99,19 @@ Scope, category/hierarchy, WC/debt-like and normality are reviewable financial-d
 
 A `HUMAN` checkpoint is intentional where reviewed judgment is required.
 
-## Findings and management questions
+## Deal Issues, Key Findings and Q&A
 
-Use only the reconciled OCL model.
+When `next_action` is `WRITE_FDD_PARTNER_ANALYSIS`, follow `FDD_PARTNER_ANALYSIS.md` exactly.
 
-Findings should state the numeric observation first and avoid fabricated explanations. Management questions should arise from actual findings and request one focused operational fact/evidence item. Do not ask management to make deal-treatment conclusions such as whether an item is debt-like or a purchase-price adjustment.
+Python first creates `analysis_evidence.json` containing the authoritative metrics, deterministic findings and table rows. The active Codex / Claude Code / Copilot host then writes one hash-bound `analysis_interpretation.json` containing:
+
+- Deal Issues;
+- Key Findings;
+- Management Q&A.
+
+Think as an experienced FDD partner. Focus on transaction implications rather than restating variances. Use only supplied evidence; do not recalculate financial metrics or invent explanations. Questions should request one focused factual point that helps the deal team resolve the issue. Do not ask management to make deal-treatment judgments.
+
+If the evidence supports no material issue or no management question, say so explicitly in the artifact rather than leaving workbook sections blank or writing filler.
 
 ## Prohibited shortcuts
 
