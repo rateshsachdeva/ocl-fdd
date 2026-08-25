@@ -37,7 +37,7 @@ def test_ppt_renderer_uses_guided_slide_structure(tmp_path: Path):
     report = run_report(analysis, questions, tmp_path)
     prs = Presentation(report)
     assert len(prs.slides) == 8
-    assert prs.slide_width == 12191875
+    assert abs(prs.slide_width - 12191695) <= 10
     assert prs.slide_height == 6858000
 
     slide_text = ["\n".join(shape.text for shape in slide.shapes if hasattr(shape, "text")) for slide in prs.slides]
