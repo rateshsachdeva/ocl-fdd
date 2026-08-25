@@ -1,1 +1,0 @@
-Regression note: automatic AI-host execution must not treat an installer/authentication bootstrap as a successful checkpoint unless the required workflow artifacts are actually created or updated.
