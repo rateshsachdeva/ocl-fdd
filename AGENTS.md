@@ -17,21 +17,55 @@ Never add client-specific raw-Excel parsing to `ocl_agent`.
 
 ## AI host continuation rule
 
-When you run `python run_all.py`, inspect the returned `Workflow coordination` object.
+`python run_all.py` now supports two ways to satisfy `AI_HOST` checkpoints.
 
-If:
+### Normal PowerShell / terminal use
+
+The default is:
+
+```text
+python run_all.py --ai-host auto
+```
+
+`auto` looks for an installed/authenticated local CLI in this order:
+
+1. Codex CLI;
+2. Claude Code CLI;
+3. GitHub Copilot CLI.
+
+When the workflow returns:
 
 ```json
 {"next_actor": "AI_HOST", "must_continue": true}
 ```
 
-then **do not stop and ask the user to manually perform that internal checkpoint**. Continue in the same agent session:
+the root Python process delegates that one checkpoint to the selected CLI, then resumes the deterministic workflow automatically. The child AI host must not run `python run_all.py` itself.
+
+Users can pin a provider with:
+
+```text
+python run_all.py --ai-host codex
+python run_all.py --ai-host claude
+python run_all.py --ai-host copilot
+```
+
+If no supported CLI is installed/authenticated, the workflow safely surfaces the coordination object as before.
+
+### Already-open coding-agent session
+
+If Codex, Claude Code or Copilot is already orchestrating the repository interactively, use:
+
+```text
+python run_all.py --ai-host external
+```
+
+This avoids spawning a nested agent. In `external` mode, when `next_actor=AI_HOST` and `must_continue=true`, the current agent session must:
 
 1. read `relevant_instruction`;
 2. read `handoff_path`, `run_directory`, review context and any other referenced evidence;
 3. create or update exactly the artifacts listed in `required_artifacts` or required by the referenced instruction;
 4. do not invent source values or use AI arithmetic as a substitute for deterministic Python;
-5. rerun `python run_all.py`;
+5. rerun `python run_all.py --ai-host external`;
 6. repeat until the workflow reaches `READY`, a genuine `HUMAN` checkpoint, or `FAILED`.
 
 The common AI checkpoints include:

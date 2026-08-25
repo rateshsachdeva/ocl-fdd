@@ -16,9 +16,9 @@ OCL FDD - START HERE
          -> published standardized long/flat data
          -> OCL semantic interpretation
          -> OCL judgments + hard controls
-         -> databook
-         -> analysis + management questions
-         -> styling + final QA
+         -> Python metrics
+         -> AI-host FDD-partner Deal Issues + Key Findings + Q&A
+         -> styling + final QA + PPT
 
 4. Principal output when complete:
        output/OCL_Databook.xlsx
@@ -26,18 +26,33 @@ OCL FDD - START HERE
 5. Secondary output:
        output/OCL_Report.pptx
 
-IMPORTANT ABOUT AI CHECKPOINTS
-------------------------------
-The full data-preparation workflow deliberately does not call a model API from Python.
-If run from a coding-agent host (Codex / Claude Code / Copilot), the agent should follow
-AGENTS.md and automatically continue any Workflow coordination checkpoint where:
+AI CHECKPOINTS
+--------------
+`python run_all.py` now uses `--ai-host auto` by default.
 
-       next_actor = AI_HOST
-       must_continue = true
+If a supported local CLI is installed, available on PATH and already authenticated,
+the root workflow will automatically use it for AI_HOST reasoning checkpoints and
+then continue Python execution. Auto-detection preference is:
 
-If run from a plain PowerShell terminal, Python may stop at that AI-host checkpoint and
-print the exact instruction / handoff path. That is expected; the workflow is refusing
-to guess a new client layout without contextual AI reasoning.
+       Codex CLI -> Claude Code CLI -> GitHub Copilot CLI
+
+You can select one explicitly:
+
+       python run_all.py --ai-host codex
+       python run_all.py --ai-host claude
+       python run_all.py --ai-host copilot
+
+If you are already running the workflow from inside an interactive Codex / Claude /
+Copilot agent session, use:
+
+       python run_all.py --ai-host external
+
+and let that current agent follow AGENTS.md. This avoids spawning a nested agent.
+
+The Python financial core still does not call a model API. The local authenticated
+coding-agent CLI is only used for contextual AI reasoning and narrative artifacts.
+If no supported CLI is installed/authenticated, the workflow safely stops at the
+AI_HOST checkpoint and prints the exact instruction / handoff path as before.
 
 Do not commit client source files. references/source/ is intentionally ignored by Git.
 Do not bypass failed controls or create balancing plugs.
