@@ -43,6 +43,36 @@ The full fdd-data-preparation AI checkpoints commonly include:
 
 Use the full runtime's own instructions and schemas. Do not replace them with a header-alias parser.
 
+## Analysis boundary
+
+The analysis layer follows a strict three-layer flow:
+
+```text
+formula-linked foundation -> Python metrics -> evidence-led findings / Excel analysis / Q&A
+```
+
+Python owns all analytical numbers and calculates them once from the reconciled OCL model. AI may improve the explanation or wording of the "so what", but it must never recalculate, override or invent an amount, percentage, classification or materiality result.
+
+Materiality has two levels:
+
+- **Databook review:** absolute movement >= 100,000 **OR** percentage movement >= 10%.
+- **Findings / Q&A:** absolute movement >= 100,000 **AND** percentage movement >= 30%.
+
+The broader threshold keeps the workbook analytically complete; the stricter threshold keeps findings and management questions focused.
+
+Where the underlying data supports them, the workbook should expose:
+
+- Balance by Category / annual movement review;
+- Roll-forward;
+- Checks;
+- Seasonality / year-end representativeness;
+- Item Monthly Charts with monthly balances and LTM 12-month average;
+- Deal Issues;
+- structured Key Findings;
+- Management Questions grouped by commercial theme.
+
+Do not create a tab or finding when the required source evidence does not exist. Analytical financial figures in Excel should link back to the formula-driven foundation wherever practicable.
+
 ## Human checkpoints
 
 If `next_actor` is `HUMAN`, stop and surface only the specific approvals/judgments that genuinely require human review. Do not broaden the request.
