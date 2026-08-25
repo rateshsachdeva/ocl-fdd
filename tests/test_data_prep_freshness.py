@@ -2,13 +2,16 @@ import json
 from pathlib import Path
 
 from ocl_agent import data_prep_bridge
+from ocl_agent.end_to_end import _activate_source_package
 
 
 class _FakeFddData:
     def __init__(self, status):
         self.status = status
+        self.calls = []
 
     def run_databook(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
         return dict(self.status)
 
 
@@ -23,8 +26,20 @@ class _FakeBootstrap:
         return None
 
 
-def _write_latest(work_root: Path, execution_id: str) -> Path:
-    latest = work_root / "output" / "latest"
+def _source(tmp_path: Path, text: str = "source-v1") -> Path:
+    source = tmp_path / "source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "client.xlsx").write_bytes(text.encode("utf-8"))
+    return source
+
+
+def _package_root(work_root: Path, source_dir: Path) -> Path:
+    fingerprint = data_prep_bridge.source_package_fingerprint(source_dir)
+    return work_root / "source_packages" / fingerprint[:16]
+
+
+def _write_latest(work_root: Path, source_dir: Path, execution_id: str) -> Path:
+    latest = _package_root(work_root, source_dir) / "output" / "latest"
     latest.mkdir(parents=True, exist_ok=True)
     (latest / "execution_manifest.json").write_text(
         json.dumps({"execution_id": execution_id, "final_execution_status": "COMPLETED"}),
@@ -33,9 +48,32 @@ def _write_latest(work_root: Path, execution_id: str) -> Path:
     return latest
 
 
-def test_old_latest_is_not_reused_for_new_source_workflow(tmp_path: Path, monkeypatch):
+def test_source_fingerprint_changes_with_source_contents_paths_and_membership(tmp_path: Path):
+    source = _source(tmp_path, "one")
+    first = data_prep_bridge.source_package_fingerprint(source)
+
+    (source / "client.xlsx").write_bytes(b"two")
+    changed = data_prep_bridge.source_package_fingerprint(source)
+    assert changed != first
+
+    (source / "other.xlsx").write_bytes(b"three")
+    added = data_prep_bridge.source_package_fingerprint(source)
+    assert added != changed
+
+    (source / "other.xlsx").rename(source / "renamed.xlsx")
+    renamed = data_prep_bridge.source_package_fingerprint(source)
+    assert renamed != added
+
+    (source / "~$client.xlsx").write_bytes(b"office-lock")
+    assert data_prep_bridge.source_package_fingerprint(source) == renamed
+
+
+def test_old_latest_is_not_visible_to_changed_source_package(tmp_path: Path, monkeypatch):
     work_root = tmp_path / "data_prep"
-    _write_latest(work_root, "EX_OLD")
+    source = _source(tmp_path, "old")
+    old_latest = _write_latest(work_root, source, "EX_OLD")
+
+    (source / "client.xlsx").write_bytes(b"new")
     status = {
         "state": "AWAITING_AI_PLANNING",
         "run_id": "RUN_NEW_SOURCE",
@@ -43,18 +81,22 @@ def test_old_latest_is_not_reused_for_new_source_workflow(tmp_path: Path, monkey
         "next_action": "UNDERSTAND_AND_PLAN",
         "must_continue": True,
     }
-    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: _FakeBootstrap(status))
+    bootstrap = _FakeBootstrap(status)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
 
-    result = data_prep_bridge.run_full_data_preparation(tmp_path, tmp_path / "source", work_root)
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
 
     assert result.state == "DATA_PREP_AWAITING_AI_PLANNING"
     assert result.standardized_output is None
     assert result.ready is False
+    assert result.output_root != old_latest.parent
+    assert result.source_fingerprint == data_prep_bridge.source_package_fingerprint(source)
 
 
-def test_current_published_execution_remains_reusable_during_later_reruns(tmp_path: Path, monkeypatch):
+def test_current_published_execution_remains_reusable_for_same_source(tmp_path: Path, monkeypatch):
     work_root = tmp_path / "data_prep"
-    latest = _write_latest(work_root, "EX_CURRENT")
+    source = _source(tmp_path)
+    latest = _write_latest(work_root, source, "EX_CURRENT")
     status = {
         "state": "KNOWLEDGE_UPDATED",
         "run_id": "RUN_CURRENT_SOURCE",
@@ -65,8 +107,71 @@ def test_current_published_execution_remains_reusable_during_later_reruns(tmp_pa
     }
     monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: _FakeBootstrap(status))
 
-    result = data_prep_bridge.run_full_data_preparation(tmp_path, tmp_path / "source", work_root)
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
 
     assert result.state == "DATA_PREP_READY"
     assert result.standardized_output == latest
     assert result.ready is True
+
+
+def test_changed_source_gets_distinct_upstream_runs_and_output_roots(tmp_path: Path, monkeypatch):
+    work_root = tmp_path / "data_prep"
+    source = _source(tmp_path, "version-a")
+    status = {
+        "state": "AWAITING_AI_PLANNING",
+        "run_id": "RUN",
+        "next_actor": "AI_HOST",
+        "next_action": "UNDERSTAND_AND_PLAN",
+    }
+    bootstrap = _FakeBootstrap(status)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
+
+    first = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+    first_call = bootstrap.fdd_data.calls[-1][0]
+
+    (source / "client.xlsx").write_bytes(b"version-b")
+    second = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+    second_call = bootstrap.fdd_data.calls[-1][0]
+
+    assert first.source_fingerprint != second.source_fingerprint
+    assert first_call[1] != second_call[1]  # runs_root
+    assert first_call[2] != second_call[2]  # output_root
+
+
+def test_source_change_removes_old_principal_deliverables(tmp_path: Path):
+    runtime_work = tmp_path / "work"
+    output = tmp_path / "output"
+    runtime_work.mkdir()
+    output.mkdir()
+    (runtime_work / "active_source_package.json").write_text(
+        json.dumps({"source_fingerprint": "OLD", "status": "READY"}),
+        encoding="utf-8",
+    )
+    (runtime_work / "final_qa.json").write_text("{}", encoding="utf-8")
+    (output / "OCL_Databook.xlsx").write_bytes(b"old workbook")
+    (output / "OCL_Report.pptx").write_bytes(b"old report")
+
+    _activate_source_package(runtime_work, output, "NEW")
+
+    assert not (output / "OCL_Databook.xlsx").exists()
+    assert not (output / "OCL_Report.pptx").exists()
+    assert not (runtime_work / "final_qa.json").exists()
+    marker = json.loads((runtime_work / "active_source_package.json").read_text(encoding="utf-8"))
+    assert marker == {"source_fingerprint": "NEW", "status": "IN_PROGRESS"}
+
+
+def test_same_source_does_not_delete_current_deliverables(tmp_path: Path):
+    runtime_work = tmp_path / "work"
+    output = tmp_path / "output"
+    runtime_work.mkdir()
+    output.mkdir()
+    (runtime_work / "active_source_package.json").write_text(
+        json.dumps({"source_fingerprint": "SAME", "status": "READY"}),
+        encoding="utf-8",
+    )
+    workbook = output / "OCL_Databook.xlsx"
+    workbook.write_bytes(b"current workbook")
+
+    _activate_source_package(runtime_work, output, "SAME")
+
+    assert workbook.read_bytes() == b"current workbook"
