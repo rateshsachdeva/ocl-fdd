@@ -172,9 +172,8 @@ def _build_prompt(coordination: dict[str, Any]) -> str:
 Complete exactly one workflow checkpoint described by the coordination JSON below.
 
 Rules:
-- Work in the current repository.
-- Read AGENTS.md first.
-- Read every referenced instruction, handoff, review context, prepared profile, knowledge evidence and other evidence file needed for this checkpoint.
+- Work in the current repository, but do not browse it broadly.
+- Read only the instruction, handoff, review context, prepared profile, knowledge evidence and other evidence explicitly referenced by the coordination payload or explicitly linked from those files.
 - The parent Python workflow has already prepared the deterministic evidence needed for this checkpoint. Reason from those files directly.
 - Create or update only the workflow artifact(s) required by the coordination/instructions.
 - Do NOT run Python, shell commands, git commands, installers, network tools, or `python run_all.py` inside this AI checkpoint.
