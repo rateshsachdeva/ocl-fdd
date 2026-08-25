@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from openpyxl import load_workbook
 
+from ocl_agent.auto_semantics import ensure_semantic_handoff
 from ocl_agent.part1_databook.controls import build_core_controls
 from ocl_agent.part1_databook.input_contract import StandardizedPackage, discover_standardized_package, profile_package
 from ocl_agent.part1_databook.judgment_validation import JudgmentIssue, validate_judgment_completion
@@ -51,6 +52,14 @@ def run_part1(standardized_output: Path, config_dir: Path, output_dir: Path) -> 
     judgments = load_judgments(config_dir)
     output_dir = Path(output_dir)
     input_review = write_input_review(package, profiles, output_dir / "OCL_Input_Review.xlsx")
+
+    # The upstream AI has already established meaning when it creates the
+    # standardized canonical publication. Carry those semantics forward
+    # deterministically instead of asking AI to reinterpret the same package.
+    # If the package is non-canonical, this returns None and the explicit
+    # semantic-review checkpoint remains the safe fallback.
+    ensure_semantic_handoff(standardized_output, config_dir)
+
     handoff_path = Path(config_dir) / "semantic_handoff.json"
     if not handoff_path.exists():
         draft = write_semantic_handoff_draft(package, profiles, output_dir / "semantic_handoff_draft.json")

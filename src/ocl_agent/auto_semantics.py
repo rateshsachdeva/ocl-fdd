@@ -1,8 +1,10 @@
-"""Deterministic bridge from the embedded standardized publication into OCL roles.
+"""Deterministic bridge from the standardized publication into OCL roles.
 
-The embedded data-preparation fast path emits canonical dataset names and field
-names. That gives enough direct evidence to create an OCL semantic handoff
-without guessing from arbitrary client headings a second time.
+The integrated data-preparation path emits canonical dataset names and field
+names. When that canonical contract is present, Python can carry the already
+established meaning into OCL without asking AI to reinterpret the same data a
+second time. Non-canonical publications deliberately fall back to the explicit
+semantic-review path.
 """
 from __future__ import annotations
 
@@ -12,7 +14,26 @@ import re
 from pathlib import Path
 
 
-def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path:
+_REQUIRED_RECORD_FIELDS = {
+    "source_record_id": "Source_Record_ID",
+    "period": "Period",
+    "amount": "Amount",
+    "source_label": "Source_Label",
+}
+_OPTIONAL_RECORD_FIELDS = {
+    "source_code": "Source_Code",
+    "entity": "Entity",
+    "currency": "Currency",
+}
+
+
+def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | None:
+    """Create a confirmed handoff only when the canonical publication proves it.
+
+    Returns ``None`` when the standardized package does not expose the canonical
+    OCL record contract. In that case the caller keeps the existing explicit AI
+    semantic-review checkpoint rather than guessing from arbitrary names.
+    """
     data_prep_output = Path(data_prep_output)
     config_dir = Path(config_dir)
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -22,40 +43,81 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path:
     manifest = _read_json(data_prep_output / "execution_manifest.json")
     package_id = str(metadata.get("workflow_run_id") or manifest.get("execution_id") or data_prep_output.name)
 
-    # A package-specific handoff must never leak into a different source package.
+    # A package-specific confirmed handoff, including a reviewed one, always wins.
     if target.exists():
         existing = _read_json(target)
         if str(existing.get("package_id")) == package_id and str(existing.get("status", "")).upper() == "CONFIRMED":
             return target
 
-    datasets = []
-    available = {path.name for path in data_prep_output.glob("*.csv")}
+    datasets: list[dict[str, object]] = []
 
-    def add(file: str, usage: str, fields: dict[str, str], **extra) -> None:
-        if file not in available:
+    def add_record(file: str, usage: str, *, movement: bool = False) -> None:
+        path = data_prep_output / file
+        headers = _headers(path)
+        required = dict(_REQUIRED_RECORD_FIELDS)
+        if movement:
+            required["movement_type"] = "Movement_Type"
+        if not headers or any(column not in headers for column in required.values()):
             return
-        item = {"file": file, "usages": [usage], "fields": fields, "dimensions": [], "notes": "Canonical integrated data-preparation output."}
-        item.update(extra)
+        fields = dict(required)
+        for role, column in _OPTIONAL_RECORD_FIELDS.items():
+            if column in headers:
+                fields[role] = column
+        item: dict[str, object] = {
+            "file": file,
+            "usages": [usage],
+            "fields": fields,
+            "dimensions": [],
+            "notes": "Canonical integrated data-preparation output; semantics carried forward deterministically.",
+        }
+        if movement:
+            item["movement_rules"] = _movement_rules(path)
         datasets.append(item)
 
-    record_fields = {
-        "source_record_id": "Source_Record_ID",
-        "period": "Period",
-        "amount": "Amount",
-        "source_label": "Source_Label",
-        "source_code": "Source_Code",
-        "entity": "Entity",
-        "currency": "Currency",
-    }
-    add("ocl_annual.csv", "OCL_RECORDS", record_fields)
-    add("ocl_monthly.csv", "MONTHLY_RECORDS", record_fields)
-    movement_fields = dict(record_fields)
-    movement_fields["movement_type"] = "Movement_Type"
-    movement_rules = _movement_rules(data_prep_output / "ocl_movements.csv")
-    add("ocl_movements.csv", "MOVEMENT_RECORDS", movement_fields, movement_rules=movement_rules)
-    add("tb_control.csv", "TB_CONTROL", {"period": "Period", "amount": "Amount"})
-    add("revenue_context.csv", "REVENUE_CONTEXT", {"period": "Period", "amount": "Amount"})
-    add("payroll_context.csv", "PAYROLL_CONTEXT", {"period": "Period", "amount": "Amount"})
+    def add_context(file: str, usage: str, amount_candidates: tuple[str, ...]) -> None:
+        path = data_prep_output / file
+        headers = _headers(path)
+        if not headers:
+            return
+        fields: dict[str, str] = {}
+        if "Period" in headers:
+            fields["period"] = "Period"
+        amount = next((candidate for candidate in amount_candidates if candidate in headers), None)
+        if amount:
+            fields["amount"] = amount
+        datasets.append({
+            "file": file,
+            "usages": [usage],
+            "fields": fields,
+            "dimensions": [],
+            "notes": "Canonical optional context from integrated data preparation.",
+        })
+
+    add_record("ocl_annual.csv", "OCL_RECORDS")
+    add_record("ocl_monthly.csv", "MONTHLY_RECORDS")
+    add_record("ocl_movements.csv", "MOVEMENT_RECORDS", movement=True)
+
+    tb_path = data_prep_output / "tb_control.csv"
+    tb_headers = _headers(tb_path)
+    if tb_headers:
+        tb_fields: dict[str, str] = {}
+        if "Period" in tb_headers:
+            tb_fields["period"] = "Period"
+        if "Amount" in tb_headers:
+            tb_fields["amount"] = "Amount"
+        datasets.append({
+            "file": "tb_control.csv",
+            "usages": ["TB_CONTROL"],
+            "fields": tb_fields,
+            "dimensions": [],
+            "notes": "Canonical control dataset from integrated data preparation.",
+        })
+
+    add_context("revenue_context.csv", "REVENUE_CONTEXT", ("Amount", "Revenue"))
+    add_context("payroll_context.csv", "PAYROLL_CONTEXT", ("Amount", "Payroll"))
+
+    if not any(set(item["usages"]) & {"OCL_RECORDS", "MONTHLY_RECORDS"} for item in datasets):
+        return None
 
     annual_periods = _unique_values(data_prep_output / "ocl_annual.csv", "Period")
     monthly_periods = _unique_values(data_prep_output / "ocl_monthly.csv", "Period")
@@ -75,7 +137,7 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path:
         if candidates:
             movement_to_annual.append({"movement_period": movement, "annual_period": candidates[-1]})
 
-    controls = _control_bindings(data_prep_output / "tb_control.csv")
+    controls = _control_bindings(tb_path)
     payload = {
         "handoff_version": "1.0",
         "status": "CONFIRMED",
@@ -89,6 +151,17 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path:
     }
     target.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return target
+
+
+def _headers(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.reader(handle)
+        try:
+            return {str(value).strip() for value in next(reader) if str(value).strip()}
+        except StopIteration:
+            return set()
 
 
 def _movement_rules(path: Path) -> dict[str, dict[str, object]]:
@@ -109,7 +182,7 @@ def _movement_rules(path: Path) -> dict[str, dict[str, object]]:
 
 
 def _control_bindings(path: Path) -> list[dict[str, object]]:
-    if not path.exists():
+    if not path.exists() or not {"Period", "Amount", "Control"}.issubset(_headers(path)):
         return []
     values = _unique_values(path, "Control")
     normalized = {value: _norm(value) for value in values}
