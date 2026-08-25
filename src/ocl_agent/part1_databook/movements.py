@@ -24,6 +24,7 @@ from ocl_agent.part1_databook.semantic_handoff import DatasetUsage, SemanticHand
 from ocl_agent.schemas import CheckStatus, ControlResult, MovementRecord, OCLRecord, ReviewStatus, Scope, SourceReference
 
 ALLOWED_ROLES = {"OPENING", "FLOW", "CLOSING"}
+PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 @dataclass(frozen=True)
@@ -141,15 +142,25 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
     if sheet.max_row:
         sheet.delete_rows(1, sheet.max_row)
     grouped = _group_movements(movements)
-    sheet.append(["Category", "Period", "Opening", "Net movement", "Closing", "Calculated closing", "Difference"])
-    for (period, category), values in sorted(grouped.items()):
-        row_number = sheet.max_row + 1
-        sheet.append([category, period, values["OPENING"], values["FLOW"], values["CLOSING"], f"=C{row_number}+D{row_number}", f"=F{row_number}-E{row_number}"])
-    sheet.freeze_panes = "A2"
+    sheet["A1"] = PROJECT_LABEL
+    sheet["A2"] = "Roll-forward"
+    sheet["B6"] = "OCL movement bridge"
+    headers = ["Category", "Period", "Opening", "Net movement", "Closing", "Calculated closing", "Difference"]
+    for column, value in enumerate(headers, start=2):
+        sheet.cell(7, column, value)
+    for row_number, ((period, category), values) in enumerate(sorted(grouped.items()), start=8):
+        sheet.cell(row_number, 2, category)
+        sheet.cell(row_number, 3, period)
+        sheet.cell(row_number, 4, values["OPENING"])
+        sheet.cell(row_number, 5, values["FLOW"])
+        sheet.cell(row_number, 6, values["CLOSING"])
+        sheet.cell(row_number, 7, f"=D{row_number}+E{row_number}")
+        sheet.cell(row_number, 8, f"=G{row_number}-F{row_number}")
+    sheet.freeze_panes = "B8"
     sheet.sheet_view.showGridLines = False
-    for cell in sheet[1]:
+    for cell in sheet[7]:
         cell.font = Font(bold=True)
-    for column in range(1, sheet.max_column + 1):
+    for column in range(2, sheet.max_column + 1):
         sheet.column_dimensions[get_column_letter(column)].width = 18
     workbook.save(databook_path)
 
