@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ocl_agent.config import RepoPaths
-from ocl_agent.data_prep_bridge import run_full_data_preparation
+from ocl_agent.data_prep_bridge import run_full_data_preparation, source_package_fingerprint
 from ocl_agent.final_qa import validate_final_databook
 from ocl_agent.part1_databook.run import Part1Result, run_part1
 from ocl_agent.part2_analysis.ai_interpretation import (
@@ -54,9 +54,15 @@ def run_end_to_end(
     """Advance raw source -> full data prep -> OCL -> final deliverables."""
     runtime_work = paths.output.parent / "work"
     warnings: list[str] = []
+    source_fingerprint: str | None = None
 
     if data_prep_output is None:
+        source_fingerprint = source_package_fingerprint(paths.source)
+        _activate_source_package(runtime_work, paths.output, source_fingerprint)
+
         prep = run_full_data_preparation(paths.root, paths.source, runtime_work / "data_prep")
+        if prep.source_fingerprint and prep.source_fingerprint != source_fingerprint:
+            raise RuntimeError("Source files changed while the workflow was starting. Rerun after the source folder is stable.")
         warnings.extend(prep.warnings)
         if not prep.ready:
             return EndToEndResult(
@@ -88,6 +94,7 @@ def run_end_to_end(
     if part1_only:
         apply_workbook_style(part1.databook)
         qa = validate_final_databook(part1.databook, qa_path)
+        _mark_source_ready(runtime_work, source_fingerprint, package_id)
         return EndToEndResult(
             "DATABOOK_READY",
             data_prep_output,
@@ -156,6 +163,7 @@ def run_end_to_end(
         paths.output,
         partner_interpretation=interpretation,
     )
+    _mark_source_ready(runtime_work, source_fingerprint, package_id)
     return EndToEndResult(
         "READY",
         data_prep_output,
@@ -168,6 +176,79 @@ def run_end_to_end(
         warnings=tuple(warnings),
         runtime_config=runtime_config,
     )
+
+
+def _activate_source_package(runtime_work: Path, output_dir: Path, source_fingerprint: str) -> None:
+    """Make generated deliverables unambiguously belong to the current source package.
+
+    When the source bytes/path set changes, previously generated principal
+    deliverables are removed before any new processing starts. This prevents a
+    user from opening an old OCL_Databook.xlsx while the new source package is
+    still waiting at an AI or human checkpoint and mistaking it for current output.
+    """
+    runtime_work = Path(runtime_work)
+    output_dir = Path(output_dir)
+    runtime_work.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = runtime_work / "active_source_package.json"
+    previous = _read_dict(marker_path)
+    if previous.get("source_fingerprint") == source_fingerprint:
+        return
+
+    for name in ("OCL_Databook.xlsx", "OCL_Report.pptx"):
+        path = output_dir / name
+        if not path.exists():
+            continue
+        try:
+            path.unlink()
+        except PermissionError as error:
+            raise RuntimeError(
+                f"Source files changed, but stale generated output is open and cannot be replaced: {path}. "
+                "Close the file and rerun."
+            ) from error
+
+    qa_path = runtime_work / "final_qa.json"
+    if qa_path.exists():
+        qa_path.unlink()
+
+    marker_path.write_text(
+        json.dumps(
+            {
+                "source_fingerprint": source_fingerprint,
+                "status": "IN_PROGRESS",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _mark_source_ready(runtime_work: Path, source_fingerprint: str | None, package_id: str) -> None:
+    if not source_fingerprint:
+        return
+    marker_path = Path(runtime_work) / "active_source_package.json"
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path.write_text(
+        json.dumps(
+            {
+                "source_fingerprint": source_fingerprint,
+                "status": "READY",
+                "package_id": package_id,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _read_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _normalize_coordination(coordination: dict[str, Any], raw_status: dict[str, Any]) -> dict[str, Any]:
