@@ -179,6 +179,7 @@ Rules:
 - Do NOT edit production code, tests, source workbooks, or raw files in references/source.
 - Do NOT invent or recalculate financial amounts when Python owns the calculation.
 - Preserve reviewed human judgments.
+- Local Python commands are permitted only when the referenced checkpoint instructions need deterministic read-only inspection or validation. Do not use Python to alter production code or raw source files.
 - If this is the FDD analysis checkpoint, think and write as an experienced FDD partner and follow FDD_PARTNER_ANALYSIS.md exactly.
 - Do NOT run python run_all.py yourself; the parent Python process will resume the workflow after you exit.
 - Do not stop to ask the user unless the referenced instruction explicitly says a genuine human judgment is required. This call is only for AI_HOST work.
@@ -197,5 +198,5 @@ def _command(executable: str, prompt: str) -> list[str]:
         prompt,
         "-s",
         "--no-ask-user",
-        "--allow-tool=read,write",
+        "--allow-tool=read,write,shell(python:*),shell(python3:*),shell(py:*)",
     ]
