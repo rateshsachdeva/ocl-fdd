@@ -26,12 +26,24 @@ OCL FDD - START HERE
          -> Python metrics
          -> GitHub Copilot FDD-partner Deal Issues + Key Findings + Q&A
          -> styling + final QA + PPT
+         -> versioned final publication
 
-5. Principal output when complete:
+5. Final deliverables are versioned on every completed run:
+       output/OCL_Databook_v1.xlsx
+       output/OCL_Report_v1.pptx
+
+   The next completed run creates:
+       output/OCL_Databook_v2.xlsx
+       output/OCL_Report_v2.pptx
+
+   and so on. The workbook and report from the same run always receive the same
+   version number. Existing versioned deliverables are never overwritten.
+
+   During processing, the workflow may temporarily use:
        output/OCL_Databook.xlsx
-
-6. Secondary output:
        output/OCL_Report.pptx
+
+   as working/latest files. These are not the historical versioned snapshots.
 
 AI CHECKPOINTS
 --------------
