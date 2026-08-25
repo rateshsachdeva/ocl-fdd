@@ -14,47 +14,46 @@ Then run:
 python run_all.py
 ```
 
+For an already-open Codex or Claude Code session, use:
+
+```bash
+python run_all.py --ai-host external
+```
+
 ## What happens internally
 
 ```text
 RAW CLIENT EXCEL
         ↓
-FULL fdd-data-preparation
+Python: discover, fingerprint and structurally profile source
+Python: prepare bounded evidence + relevant knowledge
+        ↓
+AI #1: UNDERSTAND_AND_PLAN
         │
-        ├─ Python: discover files and bind SHA-256
-        ├─ Python: profile workbooks / worksheets / regions / fields
-        ├─ AI host: understand logical datasets and field meaning
-        ├─ AI host: create Dataset Map + Processing Plan
-        ├─ Python: validate plan against source evidence
-        ├─ Python: execute union / unpivot / reshape / derive operations
-        ├─ Python: prove completeness
-        └─ Python: publish metadata + row/field lineage
+        └─ Dataset Map + Processing Plan + any genuine blocking questions
+        ↓
+Python: validate plan
+Python: execute union / unpivot / reshape / derive operations
+Python: prove completeness + preserve lineage
         ↓
 STANDARDIZED LONG / FLAT DATASETS
-work/data_prep/output/latest/
         ↓
-OCL semantic interpretation
+Python: carry canonical dataset semantics forward
+Python: apply/review OCL judgments
+Python: build shared reconciled OCL model + hard controls
+Python: render formula-driven databook foundation + analytical tables
         ↓
-reviewable OCL judgments
+AI #2: WRITE_FDD_PARTNER_ANALYSIS
+        │
+        └─ Deal Issues + Key Findings + Management Q&A from Python evidence
         ↓
-shared reconciled OCL model
+Python: render narratives + styling + PPT + independent final QA
         ↓
-hard controls
-        ↓
-dynamic workbook blueprint
-        ↓
-formula-driven Excel rendering
-        ↓
-analysis + management questions
-        ↓
-professional workbook styling
-        ↓
-independent final QA
-        ↓
-output/OCL_Databook.xlsx
+output/OCL_Databook_vN.xlsx
+output/OCL_Report_vN.pptx
 ```
 
-The secondary `output/OCL_Report.pptx` is produced from the same reconciled model.
+For a normal canonical package, those are the only two AI reasoning passes. A semantic-review or control-investigation AI step is an exception path only when the evidence genuinely cannot be resolved by the canonical contract and deterministic controls.
 
 ## Why this solves changing client formats
 
@@ -73,21 +72,23 @@ Do not solve a new client format by adding another header alias to OCL code.
 
 ## Where AI sits
 
-AI is part of the full data-preparation design.
+AI performs contextual reasoning, not deterministic processing or financial calculation.
 
 ```text
-Python structural evidence
+Python prepared evidence
        ↓
 AI contextual understanding / planning
        ↓
-Python deterministic execution / proof
+Python deterministic execution / proof / calculations
+       ↓
+AI FDD-partner interpretation of Python tables
+       ↓
+Python final rendering / QA
 ```
 
-The AI host is provider-neutral. The active host may be Codex, Claude Code, GitHub Copilot or another capable coding agent. The deterministic financial Python does not call an external model API.
+No external model API is embedded in the financial Python core.
 
-When Python reaches an AI reasoning checkpoint, it returns a coordination object containing the next actor/action, relevant instruction, handoff/evidence path and required artifacts. Coding agents follow `AGENTS.md` and continue these checkpoints automatically before rerunning the workflow.
-
-A plain terminal cannot itself perform contextual AI reasoning, so `python run_all.py` may visibly stop at an `AI_HOST` checkpoint if no coding agent is driving it. That is an intentional safety boundary, not a parsing failure.
+Normal PowerShell/terminal use invokes GitHub Copilot CLI only at explicit `AI_HOST` checkpoints. The child Copilot process is restricted to reading referenced evidence and writing the requested artifacts; it does not execute Python or shell commands itself. When Codex or Claude Code is already the active orchestrator, `--ai-host external` lets that active agent satisfy the same reasoning checkpoints.
 
 ## OCL judgment boundary
 
