@@ -1,8 +1,8 @@
-"""Invoke a locally installed coding-agent CLI for AI_HOST workflow checkpoints.
+"""Invoke GitHub Copilot CLI for AI_HOST workflow checkpoints.
 
-This keeps the repository vendor-neutral and avoids embedding model API calls.
-The user's already-authenticated local CLI performs contextual reasoning and
-writes only the workflow artifacts requested by the coordination contract.
+The user's authenticated GitHub Copilot CLI performs contextual reasoning and
+writes only the workflow artifacts requested by the coordination contract. No
+model API is embedded in the financial Python core.
 """
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROVIDERS = ("codex", "claude", "copilot")
-
 
 @dataclass(frozen=True)
 class AIHostRunResult:
@@ -25,117 +23,85 @@ class AIHostRunResult:
     message: str
 
 
-def available_providers() -> tuple[str, ...]:
-    """Return supported AI CLIs that are actually runnable, in stable order."""
-    available: list[str] = []
-    for name in PROVIDERS:
-        executable = shutil.which(name)
-        if executable and _probe_cli(executable):
-            available.append(name)
-    return tuple(available)
+def copilot_available() -> bool:
+    """Return True when a runnable GitHub Copilot CLI is available on PATH."""
+    executable = shutil.which("copilot")
+    return bool(executable and _probe_cli(executable))
 
 
 def run_ai_host(
     coordination: dict[str, Any],
     repo_root: Path,
     *,
-    provider: str = "auto",
     timeout_seconds: int = 900,
 ) -> AIHostRunResult:
-    """Run one AI_HOST checkpoint through Codex, Claude Code or Copilot CLI.
+    """Run one AI_HOST checkpoint through GitHub Copilot CLI.
 
-    ``provider=auto`` tries runnable providers in stable preference order. An
-    explicit provider attempts only that CLI. A CLI run counts as successful
-    only when it exits successfully *and* the checkpoint artifacts requested by
-    the coordination contract were actually created or updated. This prevents a
-    CLI bootstrap/authentication failure that returns exit code 0 from causing
-    the root workflow to loop on the same AI checkpoint.
+    A run counts as successful only when Copilot exits successfully and the
+    exact checkpoint artifact(s) requested by the coordination contract were
+    actually created or updated.
     """
     repo_root = Path(repo_root).resolve()
-    if provider not in {"auto", *PROVIDERS}:
-        raise ValueError(f"Unsupported AI host provider: {provider}")
-
-    candidates = list(available_providers()) if provider == "auto" else [provider]
-    if not candidates:
-        return AIHostRunResult(None, (), False, "No runnable supported AI CLI was found on PATH.")
+    executable = shutil.which("copilot")
+    if not executable or not _probe_cli(executable):
+        return AIHostRunResult(
+            "copilot" if executable else None,
+            ("copilot",) if executable else (),
+            False,
+            "GitHub Copilot CLI is not installed/runnable on PATH.",
+        )
 
     prompt = _build_prompt(coordination)
     required_artifacts = _required_artifact_paths(coordination, repo_root)
-    attempted: list[str] = []
-    errors: list[str] = []
+    before = {path: _artifact_state(path) for path in required_artifacts}
+    command = _command(executable, prompt)
 
-    for name in candidates:
-        executable = shutil.which(name)
-        if not executable:
-            errors.append(f"{name}: CLI not found on PATH")
-            continue
-
-        attempted.append(name)
-        before = {path: _artifact_state(path) for path in required_artifacts}
-        command = _command(name, executable, prompt)
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=repo_root,
-                check=False,
-                timeout=timeout_seconds,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-        except subprocess.TimeoutExpired:
-            errors.append(f"{name}: timed out after {timeout_seconds} seconds")
-            if provider != "auto":
-                break
-            continue
-        except OSError as error:
-            errors.append(f"{name}: could not start ({error})")
-            if provider != "auto":
-                break
-            continue
-
-        output_tail = _output_tail(completed.stdout)
-        if completed.returncode != 0:
-            detail = f"; {output_tail}" if output_tail else ""
-            errors.append(f"{name}: exited with code {completed.returncode}{detail}")
-            if provider != "auto":
-                break
-            continue
-
-        if required_artifacts:
-            after = {path: _artifact_state(path) for path in required_artifacts}
-            missing = [str(path) for path, state in after.items() if state is None]
-            progressed = any(before[path] != after[path] for path in required_artifacts)
-            if missing or not progressed:
-                if missing:
-                    reason = "required artifact(s) were not created: " + ", ".join(missing)
-                else:
-                    reason = "required artifact(s) were not updated"
-                if output_tail:
-                    reason += f"; CLI output: {output_tail}"
-                errors.append(f"{name}: {reason}")
-                if provider != "auto":
-                    break
-                continue
-
-        return AIHostRunResult(
-            name,
-            tuple(attempted),
-            True,
-            f"{name} completed the AI_HOST checkpoint and produced the required artifact(s).",
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            check=False,
+            timeout=timeout_seconds,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+    except subprocess.TimeoutExpired:
+        return AIHostRunResult("copilot", ("copilot",), False, f"GitHub Copilot CLI timed out after {timeout_seconds} seconds.")
+    except OSError as error:
+        return AIHostRunResult("copilot", ("copilot",), False, f"GitHub Copilot CLI could not start: {error}")
+
+    output_tail = _output_tail(completed.stdout)
+    if completed.returncode != 0:
+        detail = f"; {output_tail}" if output_tail else ""
+        return AIHostRunResult("copilot", ("copilot",), False, f"GitHub Copilot CLI exited with code {completed.returncode}{detail}")
+
+    if required_artifacts:
+        after = {path: _artifact_state(path) for path in required_artifacts}
+        missing = [str(path) for path, state in after.items() if state is None]
+        progressed = any(before[path] != after[path] for path in required_artifacts)
+        if missing or not progressed:
+            if missing:
+                reason = "required artifact(s) were not created: " + ", ".join(missing)
+            else:
+                reason = "required artifact(s) were not updated"
+            if output_tail:
+                reason += f"; CLI output: {output_tail}"
+            if "no authentication information" in (completed.stdout or "").casefold():
+                reason += "; authenticate once with `copilot login --web-flow` and rerun"
+            return AIHostRunResult("copilot", ("copilot",), False, reason)
 
     return AIHostRunResult(
-        attempted[-1] if attempted else None,
-        tuple(attempted),
-        False,
-        "; ".join(errors) or "AI host did not complete the checkpoint.",
+        "copilot",
+        ("copilot",),
+        True,
+        "GitHub Copilot completed the AI_HOST checkpoint and produced the required artifact(s).",
     )
 
 
 def _probe_cli(executable: str, timeout_seconds: int = 8) -> bool:
-    """Check that a PATH entry is a runnable CLI, not an installer/bootstrap shim."""
+    """Check that the PATH entry is a runnable CLI, not an installer/bootstrap shim."""
     try:
         completed = subprocess.run(
             [executable, "--version"],
@@ -179,7 +145,6 @@ def _required_artifact_paths(coordination: dict[str, Any], repo_root: Path) -> t
 
 
 def _artifact_state(path: Path) -> str | None:
-    """Return a content fingerprint for a required artifact, or None if absent."""
     if not path.is_file():
         return None
     digest = hashlib.sha256()
@@ -221,26 +186,12 @@ When the required artifact(s) are complete and valid JSON/files have been writte
 """
 
 
-def _command(provider: str, executable: str, prompt: str) -> list[str]:
-    if provider == "codex":
-        return [executable, "exec", "--ephemeral", prompt]
-    if provider == "claude":
-        return [
-            executable,
-            "-p",
-            prompt,
-            "--allowedTools",
-            "Read",
-            "Write",
-            "Edit",
-        ]
-    if provider == "copilot":
-        return [
-            executable,
-            "-p",
-            prompt,
-            "-s",
-            "--no-ask-user",
-            "--allow-tool=read,write",
-        ]
-    raise ValueError(f"Unsupported AI host provider: {provider}")
+def _command(executable: str, prompt: str) -> list[str]:
+    return [
+        executable,
+        "-p",
+        prompt,
+        "-s",
+        "--no-ask-user",
+        "--allow-tool=read,write",
+    ]
