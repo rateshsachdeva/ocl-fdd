@@ -65,6 +65,11 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     instruction/handoff paths returned by the upstream workflow, then rerun the
     top-level OCL command. Python never substitutes a header-guessing parser for
     that reasoning step.
+
+    A previous ``output/latest`` may remain on disk from an older source package.
+    It is intentionally ignored unless the *current upstream run* reports a
+    publishable terminal state. This prevents changed source files from silently
+    reusing old standardized data.
     """
     repo_root = Path(repo_root).resolve()
     source_dir = Path(source_dir).resolve()
@@ -91,10 +96,22 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     latest = output_root / "latest"
     manifest = _read_json(latest / "execution_manifest.json")
     published_status = str(manifest.get("final_execution_status") or "")
-    standardized_output = latest if latest.is_dir() and published_status in PUBLISHABLE_STATUSES else None
+
+    # Critical freshness rule: an old completed latest/ folder must never make a
+    # newly-started source package look ready while the current run is still at
+    # profiling/AI planning/approval. Only a terminal current upstream state can
+    # activate the published package.
+    current_run_is_publishable = upstream_state in PUBLISHABLE_STATUSES
+    standardized_output = (
+        latest
+        if current_run_is_publishable
+        and latest.is_dir()
+        and published_status in PUBLISHABLE_STATUSES
+        else None
+    )
 
     warnings: list[str] = []
-    if published_status == "COMPLETED_WITH_WARNINGS":
+    if current_run_is_publishable and published_status == "COMPLETED_WITH_WARNINGS":
         warnings.append("fdd-data-preparation published with warnings; see execution_manifest.json and databook_metadata.json.")
     if standardized_output is not None:
         try:
