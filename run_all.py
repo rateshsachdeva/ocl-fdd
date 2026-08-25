@@ -25,6 +25,7 @@ from ocl_agent.ai_host_cli import run_ai_host
 from ocl_agent.config import ensure_runtime_folders
 from ocl_agent.end_to_end import run_end_to_end
 from ocl_agent.final_qa import FinalQAError
+from ocl_agent.output_versioning import publish_versioned_deliverables
 from ocl_agent.part1_databook.input_contract import InputContractError
 from ocl_agent.part1_databook.judgments import JudgmentError
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoffError
@@ -113,8 +114,24 @@ def main() -> int:
             print(f"Workflow coordination requires review: {action or actor or 'UNKNOWN'}")
             return 0
 
-        if result.databook:
-            print(f"Databook: {result.databook}")
+        published = None
+        if result.databook and result.state in {"READY", "DATABOOK_READY"}:
+            try:
+                published = publish_versioned_deliverables(
+                    result.databook,
+                    result.report,
+                    paths.output,
+                )
+            except OSError as error:
+                print(f"OCL stopped safely: completed outputs could not be versioned: {error}")
+                return 2
+            print(f"Published deliverable version: v{published.version}")
+
+        databook_path = published.databook if published is not None else result.databook
+        report_path = published.report if published is not None else result.report
+
+        if databook_path:
+            print(f"Databook: {databook_path}")
         if result.qa:
             print(f"Final QA: {result.qa.get('status')}")
         if args.part1_only:
@@ -122,8 +139,8 @@ def main() -> int:
             return 0
         print(f"Part 2 findings: {result.findings}")
         print(f"Part 3 management questions: {result.questions}")
-        if result.report:
-            print(f"Report: {result.report}")
+        if report_path:
+            print(f"Report: {report_path}")
         print("OCL workflow: READY")
         return 0 if result.state == "READY" else 2
 
