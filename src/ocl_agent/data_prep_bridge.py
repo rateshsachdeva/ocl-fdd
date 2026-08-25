@@ -8,6 +8,7 @@ standardized package exists.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from dataclasses import dataclass, field
@@ -49,6 +50,7 @@ class DataPrepBridgeResult:
     output_root: Path
     standardized_output: Path | None = None
     run_id: str | None = None
+    source_fingerprint: str | None = None
     coordination: dict[str, Any] = field(default_factory=dict)
     raw_status: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
@@ -58,24 +60,59 @@ class DataPrepBridgeResult:
         return self.standardized_output is not None
 
 
+def source_package_fingerprint(source_dir: Path) -> str:
+    """Fingerprint the exact current source package by relative path and bytes.
+
+    The outer OCL workflow uses this fingerprint before the embedded data-prep
+    runtime is allowed to inspect any previous run state. Therefore adding,
+    removing, renaming or changing a source file creates a distinct upstream
+    workspace even if the embedded runtime itself would otherwise resume an old
+    run. Office lock files are ignored because they are not client source data.
+    """
+    source_dir = Path(source_dir).resolve()
+    digest = hashlib.sha256()
+    files = sorted(
+        (
+            path
+            for path in source_dir.rglob("*")
+            if path.is_file() and not path.name.startswith("~$")
+        ),
+        key=lambda path: path.relative_to(source_dir).as_posix().casefold(),
+    ) if source_dir.exists() else []
+
+    digest.update(f"files:{len(files)}\n".encode("utf-8"))
+    for path in files:
+        relative = path.relative_to(source_dir).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(path.stat().st_size).encode("ascii"))
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path) -> DataPrepBridgeResult:
     """Advance the full data-preparation workflow by one deterministic/AI-host turn.
 
-    A coding-agent host should satisfy AI-host checkpoints using the exact
-    instruction/handoff paths returned by the upstream workflow, then rerun the
-    top-level OCL command. Python never substitutes a header-guessing parser for
-    that reasoning step.
+    Each distinct set of files in ``references/source`` receives its own
+    ``source_packages/<fingerprint>/`` runs and output directories. This outer
+    isolation is deliberately stronger than relying only on an upstream run ID:
+    old workflow state is never visible to a newly changed source package.
 
-    ``output/latest`` is reusable only when its execution ID matches the current
-    source-bound workflow. This lets later OCL/AI reruns reuse the same published
-    package, while a changed source fingerprint can never silently inherit a
-    previous package's output.
+    Within that source-specific workspace, ``output/latest`` is reusable only
+    when its execution ID matches the current upstream execution.
     """
     repo_root = Path(repo_root).resolve()
     source_dir = Path(source_dir).resolve()
     work_root = Path(work_root).resolve()
-    runs_root = work_root / "runs"
-    output_root = work_root / "output"
+
+    source_fingerprint = source_package_fingerprint(source_dir)
+    source_package_root = work_root / "source_packages" / source_fingerprint[:16]
+    runs_root = source_package_root / "runs"
+    output_root = source_package_root / "output"
     runs_root.mkdir(parents=True, exist_ok=True)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -92,6 +129,8 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
 
     upstream_state = str(status.get("state") or "UNKNOWN")
     coordination = _coordination_from_status(status)
+    coordination.setdefault("source_fingerprint", source_fingerprint)
+    coordination.setdefault("source_package_root", str(source_package_root))
     run_id = status.get("run_id")
     current_execution_id = str(status.get("execution_id") or "")
     latest = output_root / "latest"
@@ -99,11 +138,6 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     published_status = str(manifest.get("final_execution_status") or "")
     published_execution_id = str(manifest.get("execution_id") or "")
 
-    # Critical freshness rule. The upstream workflow fingerprints all current
-    # source files and creates/resumes the matching workflow. We then bind
-    # output/latest to that exact workflow execution ID. A newly changed source
-    # package has no matching execution ID until it has been processed, so an old
-    # latest folder cannot leak into the new OCL run.
     latest_belongs_to_current_run = bool(
         current_execution_id
         and published_execution_id
@@ -140,6 +174,7 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         output_root=output_root,
         standardized_output=standardized_output,
         run_id=str(run_id) if run_id else None,
+        source_fingerprint=source_fingerprint,
         coordination=coordination,
         raw_status=status,
         warnings=tuple(warnings),
@@ -156,8 +191,6 @@ def _coordination_from_status(status: dict[str, Any]) -> dict[str, Any]:
 
     actor = str(result.get("next_actor") or "").upper()
     if actor == "AI_HOST":
-        # Root OCL orchestration, not the user, owns continuation after the host
-        # writes the requested reasoning artifacts.
         result["must_continue"] = True
     result["resume_command"] = "python run_all.py"
     return result
