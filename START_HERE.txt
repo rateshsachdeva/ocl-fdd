@@ -1,65 +1,43 @@
 OCL FDD - START HERE
 ====================
 
-QUICKEST CLOUD OPTION: GITHUB CODESPACES
-----------------------------------------
-1. On the GitHub repository page choose:
-       Code -> Codespaces -> Create codespace on main
-
-2. Wait for the Codespace to finish setup. Python 3.11 and the repository
-   dependencies are configured automatically from .devcontainer/devcontainer.json.
-
-3. Put the raw client Excel files in:
+1. Put the raw client Excel files in:
        references/source/
 
-   Do not commit them. This folder is intentionally ignored by Git.
-
-4. In Copilot Chat / Agent mode tell the coding agent:
-       Run the OCL workflow end-to-end using the files in references/source/.
-       Follow AGENTS.md and continue all AI_HOST checkpoints automatically
-       until READY or a genuine HUMAN decision is required.
-
-5. The agent runs the same repository entry point:
+2. From the repository root run:
        python run_all.py
 
-LOCAL OPTION
-------------
-From the repository root run:
-       python run_all.py
+3. The workflow is:
+       raw Excel
+         -> full fdd-data-preparation
+            -> Python profiling
+            -> AI-host dataset understanding + Processing Plan
+            -> Python deterministic execution + completeness + lineage
+         -> published standardized long/flat data
+         -> OCL semantic interpretation
+         -> OCL judgments + hard controls
+         -> databook
+         -> analysis + management questions
+         -> styling + final QA
 
-A plain terminal cannot perform AI reasoning itself, so it may stop at an
-AI_HOST checkpoint and print the exact handoff/instruction paths.
-
-WORKFLOW
---------
-raw Excel
-  -> full fdd-data-preparation
-     -> Python profiling
-     -> AI-host dataset understanding + Processing Plan
-     -> Python deterministic execution + completeness + lineage
-  -> published standardized long/flat data
-  -> OCL semantic interpretation
-  -> OCL judgments + hard controls
-  -> databook
-  -> analysis + management questions
-  -> styling + final QA
-
-Principal output when complete:
+4. Principal output when complete:
        output/OCL_Databook.xlsx
 
-Secondary output:
+5. Secondary output:
        output/OCL_Report.pptx
 
 IMPORTANT ABOUT AI CHECKPOINTS
 ------------------------------
 The full data-preparation workflow deliberately does not call a model API from Python.
-If run from a coding-agent host (including Copilot in Codespaces), the agent should follow
+If run from a coding-agent host (Codex / Claude Code / Copilot), the agent should follow
 AGENTS.md and automatically continue any Workflow coordination checkpoint where:
 
        next_actor = AI_HOST
        must_continue = true
 
-If next_actor = HUMAN, stop and surface only the specific approval or judgment required.
+If run from a plain PowerShell terminal, Python may stop at that AI-host checkpoint and
+print the exact instruction / handoff path. That is expected; the workflow is refusing
+to guess a new client layout without contextual AI reasoning.
 
-Do not commit client source files.
+Do not commit client source files. references/source/ is intentionally ignored by Git.
 Do not bypass failed controls or create balancing plugs.
