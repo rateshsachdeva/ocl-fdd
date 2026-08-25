@@ -1,7 +1,9 @@
 """Deterministic Excel renderer for a dynamic OCL workbook blueprint.
 
 This module renders reviewed decisions. It does not decide accounting meaning,
-create categories, or force unsupported analyses into the workbook.
+create categories, or force unsupported analyses into the workbook. Workbook
+layout follows the OCL databook formatting contract so downstream formulas can
+reference stable foundation ranges.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ from ocl_agent.part1_databook.workbook_blueprint import WorkbookBlueprint
 from ocl_agent.schemas import ControlResult, OCLRecord, Scope
 
 EXCEL_MAX_DATA_ROWS = 1_048_575
+PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 CORE_FLAT_COLUMNS = (
     "Source_Dataset", "Source_Record_ID", "Source_ID", "Source_Sheet", "Source_Cell", "Raw_Source_Sheet",
     "Entity", "Period", "Record_Usage", "Parent_Category", "Category", "Source_Label", "Source_Code", "Amount",
@@ -115,6 +118,7 @@ def _write_source_copies(sheet_map, blueprint: WorkbookBlueprint, package: Stand
 def _write_flat(sheet, rows: tuple[OCLRecord, ...], source_sheet_by_file: dict[str, str], source_headers_by_file: dict[str, list[str]], handoff: SemanticHandoff | None) -> None:
     excluded_dimensions = {"dataset_file", "record_usage", "standardized_csv_row", "source_code", "entity", "currency"}
     dynamic_dimensions = sorted({key for row in rows for key in row.dimensions if key not in excluded_dimensions})
+    sheet.append([sheet.title])
     sheet.append([*CORE_FLAT_COLUMNS, *dynamic_dimensions])
     amount_column_by_file = {binding.file: binding.fields.amount for binding in handoff.record_bindings()} if handoff else {}
     for row in rows:
@@ -151,26 +155,42 @@ def _write_balance(sheet, blueprint: WorkbookBlueprint, *, monthly: bool) -> Non
     periods = blueprint.monthly_periods if monthly else blueprint.periods
     usage = "MONTHLY_RECORDS" if monthly else "OCL_RECORDS"
     flat_sheet = "Monthly Flat" if monthly else "Flat File"
-    sheet.append(["Category", *periods])
+    sheet["A1"] = PROJECT_LABEL
+    sheet["A2"] = sheet.title
+    sheet["B6"] = "Monthly balance by category" if monthly else "Balance by category"
+    for column, value in enumerate(("Category", *periods), start=2):
+        sheet.cell(7, column, value)
     rows_for_total: list[int] = []
     child_set = {child for children in blueprint.hierarchy.values() for child in children}
+    current_row = 8
     for parent, children in blueprint.hierarchy.items():
         child_rows: list[int] = []
         for child in children:
-            row_number = sheet.max_row + 1
-            sheet.append([child, *[_sumifs_formula(flat_sheet, child, period, usage) for period in periods]])
-            child_rows.append(row_number)
-            rows_for_total.append(row_number)
+            sheet.cell(current_row, 2, child)
+            for column, period in enumerate(periods, start=3):
+                sheet.cell(current_row, column, _sumifs_formula(flat_sheet, child, period, usage))
+            child_rows.append(current_row)
+            rows_for_total.append(current_row)
+            current_row += 1
         if child_rows:
-            sheet.append([parent, *[f"=SUM({get_column_letter(column)}{child_rows[0]}:{get_column_letter(column)}{child_rows[-1]})" for column in range(2, 2 + len(periods))]])
+            sheet.cell(current_row, 2, parent)
+            for column in range(3, 3 + len(periods)):
+                letter = get_column_letter(column)
+                sheet.cell(current_row, column, f"=SUM({letter}{child_rows[0]}:{letter}{child_rows[-1]})")
+            current_row += 1
     for category in blueprint.categories:
         if category in child_set or category in blueprint.hierarchy:
             continue
-        row_number = sheet.max_row + 1
-        sheet.append([category, *[_sumifs_formula(flat_sheet, category, period, usage) for period in periods]])
-        rows_for_total.append(row_number)
+        sheet.cell(current_row, 2, category)
+        for column, period in enumerate(periods, start=3):
+            sheet.cell(current_row, column, _sumifs_formula(flat_sheet, category, period, usage))
+        rows_for_total.append(current_row)
+        current_row += 1
     if rows_for_total:
-        sheet.append(["Total OCL", *["=" + "+".join(f"{get_column_letter(column)}{row_number}" for row_number in rows_for_total) for column in range(2, 2 + len(periods))]])
+        sheet.cell(current_row, 2, "Total OCL")
+        for column in range(3, 3 + len(periods)):
+            letter = get_column_letter(column)
+            sheet.cell(current_row, column, "=" + "+".join(f"{letter}{row_number}" for row_number in rows_for_total))
 
 
 def _sumifs_formula(flat_sheet: str, category: str, period: str, usage: str) -> str:
@@ -185,8 +205,12 @@ def _sumifs_formula(flat_sheet: str, category: str, period: str, usage: str) -> 
 
 
 def _write_checks(sheet, checks: tuple[ControlResult, ...], flat_sheet) -> None:
-    sheet.append(["Control_ID", "Python_Status", "Python_Actual", "Python_Expected", "Python_Difference", "Workbook_Difference", "Workbook_Status", "Message"])
-    for row_number, check in enumerate(checks, start=2):
+    sheet["A1"] = "All check values must be zero"
+    sheet["A2"] = "Green means tie; red means break. Unsupported checks remain NOT_APPLICABLE rather than being forced."
+    headers = ["Control_ID", "Python_Status", "Python_Actual", "Python_Expected", "Python_Difference", "Workbook_Difference", "Workbook_Status", "Message"]
+    for column, value in enumerate(headers, start=1):
+        sheet.cell(4, column, value)
+    for row_number, check in enumerate(checks, start=5):
         workbook_difference = None
         workbook_status = None
         if check.control_id == "chk_categories_sum" and flat_sheet is not None:
@@ -195,12 +219,18 @@ def _write_checks(sheet, checks: tuple[ControlResult, ...], flat_sheet) -> None:
             category = _flat_col("Category")
             workbook_difference = (f'=SUMIFS(\'Flat File\'!${amount}:${amount},\'Flat File\'!${scope}:${scope},"IN_SCOPE",' f'\'Flat File\'!${category}:${category},"<>")-SUMIFS(\'Flat File\'!${amount}:${amount},' f'\'Flat File\'!${scope}:${scope},"IN_SCOPE")')
             workbook_status = f'=IF(ABS(F{row_number})<0.5,"PASS","FAIL")'
-        sheet.append([check.control_id, check.status.value, check.actual, check.expected, check.difference, workbook_difference, workbook_status, check.message])
+        values = [check.control_id, check.status.value, check.actual, check.expected, check.difference, workbook_difference, workbook_status, check.message]
+        for column, value in enumerate(values, start=1):
+            sheet.cell(row_number, column, value)
 
 
 def _write_mapping(sheet, rows: tuple[OCLRecord, ...]) -> None:
-    sheet.append(["Source_Label", "Source_Code", "Entity", "Scope", "Category", "Parent_Category", "Management_View", "FDD_View", "Normality", "Review_Status", "Reason"])
+    sheet["A1"] = "Original source label to OCL category / scope mapping"
+    headers = ["Source_Label", "Source_Code", "Entity", "Scope", "Category", "Parent_Category", "Management_View", "FDD_View", "Normality", "Review_Status", "Reason"]
+    for column, value in enumerate(headers, start=1):
+        sheet.cell(2, column, value)
     seen: set[tuple[str, str, str]] = set()
+    current_row = 3
     for row in rows:
         source_code = _text(row.dimensions.get("source_code"))
         entity = _text(row.dimensions.get("entity"))
@@ -209,21 +239,39 @@ def _write_mapping(sheet, rows: tuple[OCLRecord, ...]) -> None:
             continue
         seen.add(key)
         judgment = row.judgment
-        sheet.append([row.source_label, source_code, entity, judgment.scope.value, judgment.category, judgment.parent_category, judgment.management_view, judgment.fdd_view, judgment.normality, judgment.review_status.value, judgment.reason])
+        values = [row.source_label, source_code, entity, judgment.scope.value, judgment.category or "UNMAPPED", judgment.parent_category, judgment.management_view, judgment.fdd_view, judgment.normality, judgment.review_status.value, judgment.reason]
+        for column, value in enumerate(values, start=1):
+            sheet.cell(current_row, column, value)
+        current_row += 1
 
 
 def _write_unmapped(sheet, rows: tuple[OCLRecord, ...]) -> None:
-    sheet.append(["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount", "Source_Dataset"])
+    sheet["A1"] = "Unmapped rows are retained and excluded from mapped-category subtotals"
+    sheet["A2"] = "These records remain visible for review; Total OCL must not hide an unresolved mapping gap."
+    headers = ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount", "Source_Dataset"]
+    for column, value in enumerate(headers, start=1):
+        sheet.cell(3, column, value)
+    current_row = 4
     for row in rows:
         if row.judgment.scope == Scope.IN_SCOPE and not row.judgment.category:
-            sheet.append([row.source.source_record_id, row.period, row.source_label, row.dimensions.get("source_code"), row.dimensions.get("entity"), row.amount, row.dimensions.get("dataset_file")])
+            values = [row.source.source_record_id, row.period, row.source_label, row.dimensions.get("source_code"), row.dimensions.get("entity"), row.amount, row.dimensions.get("dataset_file")]
+            for column, value in enumerate(values, start=1):
+                sheet.cell(current_row, column, value)
+            current_row += 1
 
 
 def _write_scope_excluded(sheet, rows: tuple[OCLRecord, ...]) -> None:
-    sheet.append(["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Scope", "Amount", "Source_Dataset"])
+    sheet["A1"] = "Out-of-scope rows are retained and excluded from OCL"
+    headers = ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Scope", "Amount", "Source_Dataset"]
+    for column, value in enumerate(headers, start=1):
+        sheet.cell(2, column, value)
+    current_row = 3
     for row in rows:
         if row.judgment.scope != Scope.IN_SCOPE:
-            sheet.append([row.source.source_record_id, row.period, row.source_label, row.dimensions.get("source_code"), row.dimensions.get("entity"), row.judgment.scope.value, row.amount, row.dimensions.get("dataset_file")])
+            values = [row.source.source_record_id, row.period, row.source_label, row.dimensions.get("source_code"), row.dimensions.get("entity"), row.judgment.scope.value, row.amount, row.dimensions.get("dataset_file")]
+            for column, value in enumerate(values, start=1):
+                sheet.cell(current_row, column, value)
+            current_row += 1
 
 
 def _flat_col(name: str) -> str:
@@ -232,11 +280,18 @@ def _flat_col(name: str) -> str:
 
 def _finish_sheet(sheet) -> None:
     sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "A2"
-    if sheet.max_row >= 1 and sheet.max_column >= 1:
-        sheet.auto_filter.ref = sheet.dimensions
-        for cell in sheet[1]:
-            cell.font = Font(bold=True)
+    if sheet.title in {"Flat File", "Monthly Flat", "Mapping", "SCOPE_EXCLUDED"}:
+        sheet.freeze_panes = "A3"
+    elif sheet.title == "UNMAPPED":
+        sheet.freeze_panes = "A4"
+    elif sheet.title == "Checks":
+        sheet.freeze_panes = "A5"
+    elif sheet.title in {"Balance by Category", "Monthly Balance"}:
+        sheet.freeze_panes = "B8"
+    elif sheet.title.startswith("SRC_"):
+        sheet.freeze_panes = "A2"
+    else:
+        sheet.freeze_panes = "A2"
     for column in range(1, sheet.max_column + 1):
         width = min(40, max(10, max(len(str(sheet.cell(row, column).value or "")) for row in range(1, min(sheet.max_row, 100) + 1)) + 2))
         sheet.column_dimensions[get_column_letter(column)].width = width
