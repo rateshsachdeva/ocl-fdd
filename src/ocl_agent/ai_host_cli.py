@@ -172,16 +172,16 @@ def _build_prompt(coordination: dict[str, Any]) -> str:
 Complete exactly one workflow checkpoint described by the coordination JSON below.
 
 Rules:
-- Work in the current repository.
-- Read AGENTS.md first.
-- Read every referenced instruction, handoff, review context and evidence file needed for this checkpoint.
+- Work in the current repository, but do not browse it broadly.
+- Read only the instruction, handoff, review context, prepared profile, knowledge evidence and other evidence explicitly referenced by the coordination payload or explicitly linked from those files.
+- The parent Python workflow has already prepared the deterministic evidence needed for this checkpoint. Reason from those files directly.
 - Create or update only the workflow artifact(s) required by the coordination/instructions.
+- Do NOT run Python, shell commands, git commands, installers, network tools, or `python run_all.py` inside this AI checkpoint.
 - Do NOT edit production code, tests, source workbooks, or raw files in references/source.
 - Do NOT invent or recalculate financial amounts when Python owns the calculation.
 - Preserve reviewed human judgments.
-- Local Python commands are permitted only when the referenced checkpoint instructions need deterministic read-only inspection or validation. Do not use Python to alter production code or raw source files.
+- If the referenced instruction offers optional targeted inspection, use the already-prepared profile/samples/evidence first. If that evidence is genuinely insufficient, write the required unresolved/blocking question artifact rather than trying to execute code yourself.
 - If this is the FDD analysis checkpoint, think and write as an experienced FDD partner and follow FDD_PARTNER_ANALYSIS.md exactly.
-- Do NOT run python run_all.py yourself; the parent Python process will resume the workflow after you exit.
 - Do not stop to ask the user unless the referenced instruction explicitly says a genuine human judgment is required. This call is only for AI_HOST work.
 
 Workflow coordination:
@@ -198,5 +198,5 @@ def _command(executable: str, prompt: str) -> list[str]:
         prompt,
         "-s",
         "--no-ask-user",
-        "--allow-tool=read,write,shell(python:*),shell(python3:*),shell(py:*)",
+        "--allow-tool=read,write",
     ]

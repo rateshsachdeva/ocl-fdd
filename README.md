@@ -16,40 +16,33 @@ Then run:
 python run_all.py
 ```
 
-The repository owns the complete workflow:
+Normal terminal use delegates the two contextual AI reasoning stages to an installed/authenticated GitHub Copilot CLI. If Codex or Claude Code is already running the repository interactively, use `python run_all.py --ai-host external` so that active agent completes the AI checkpoints itself.
+
+The normal successful workflow is intentionally simple:
 
 ```text
 RAW CLIENT EXCEL
 references/source/
         ↓
-full fdd-data-preparation
-        ├─ Python discovery + structural profiling
-        ├─ AI-host dataset understanding
-        ├─ AI-host Dataset Map + Processing Plan
-        ├─ Python plan validation + deterministic execution
-        └─ Python completeness + lineage + publication
+Python discovery + structural profiling + knowledge evidence
         ↓
-work/data_prep/output/latest/
-standardized long/flat datasets + metadata + lineage
+AI #1: understand datasets + create Dataset Map / Processing Plan
         ↓
-OCL semantic handoff
+Python validation + deterministic reshape + completeness + lineage
         ↓
-OCL scope + dynamic mapping/hierarchy + WC/debt/normality
+canonical standardized datasets
         ↓
-hard reconciliations
+Python OCL scope/model/controls/databook + analytical tables
         ↓
-dynamic formula-driven OCL_Databook.xlsx
+AI #2: FDD-partner Deal Issues + Key Findings + Q&A
         ↓
-analysis + management questions
+Python workbook/PPT rendering + independent final QA
         ↓
-workbook styling + final deterministic QA
-        ↓
-output/OCL_Databook.xlsx
-        ↓
-secondary output/OCL_Report.pptx
+output/OCL_Databook_vN.xlsx
+output/OCL_Report_vN.pptx
 ```
 
-The raw source workbooks are read-only and are not committed to Git. The principal deliverable is `output/OCL_Databook.xlsx`.
+The raw source workbooks are read-only and are not committed to Git. The Excel databook is the principal deliverable.
 
 ## The important architectural boundary
 
@@ -59,17 +52,20 @@ This means a new source format should normally change the AI-generated Dataset M
 
 ## How AI is used
 
-The data-preparation workflow is AI-powered but model-provider-neutral. The contextual reasoning may be performed by Codex, Claude Code, GitHub Copilot or another capable coding agent.
+Python itself does not call an LLM API and AI does not calculate financial amounts.
 
-Python itself does not call an LLM API. Instead the full upstream state machine returns explicit `AI_HOST` checkpoints with the relevant instruction/evidence and required artifacts. A coding-agent host follows those instructions, writes the Dataset Map / Processing Plan (or other requested reasoning artifact), reruns Python, and continues until publication or a genuine human checkpoint.
+For a normal canonical run there are two reasoning passes:
 
-If `python run_all.py` is launched from a plain terminal with no coding agent driving it, the command may therefore stop at a clearly identified AI-host checkpoint. That is expected and safer than guessing the source layout.
+1. **UNDERSTAND_AND_PLAN** — AI reads deterministic profile/knowledge evidence and writes the Dataset Map / Processing Plan.
+2. **WRITE_FDD_PARTNER_ANALYSIS** — after Python has calculated and reconciled the analytical tables, AI writes evidence-backed Deal Issues, Key Findings and Management Q&A.
 
-`AGENTS.md` and `.github/copilot-instructions.md` tell coding agents to continue these internal AI-host checkpoints automatically.
+Intermediate semantic confirmation is deterministic when the standardized publication follows the canonical contract. Control investigation or semantic review remains an exception path only when evidence genuinely requires it.
+
+The automatic GitHub Copilot child checkpoint is deliberately narrow: it may read referenced evidence and write required workflow artifacts, but it does not execute Python/shell commands, modify code, or browse the repository broadly. Python remains the parent workflow executor.
 
 ## Design principles
 
-- **Full generic upstream preparation.** Raw Excel structure is handled by the full profiler → AI understanding → Processing Plan → deterministic executor workflow.
+- **Full generic upstream preparation.** Raw Excel structure is handled by profiler → AI understanding/planning → deterministic executor.
 - **No second raw-source parser in OCL.** OCL starts from the published standardized package.
 - **No fixed Excel structural template.** Actual data, periods, categories, hierarchy and supported analyses determine workbook structure.
 - **No legacy category universe.** Source-present line items drive the dynamic mapping layer.
