@@ -30,8 +30,6 @@ DARK_GREY = RGBColor(0x55, 0x55, 0x55)
 BLACK = RGBColor(0x00, 0x00, 0x00)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 AMBER = RGBColor(0xFF, 0xF2, 0xCC)
-RED = RGBColor(0xC0, 0x00, 0x00)
-GREEN = RGBColor(0x00, 0x61, 0x00)
 FONT = "Arial"
 
 
@@ -40,7 +38,6 @@ def render_report(analysis: AnalysisResult, questions: tuple[ManagementQuestion,
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
     _remove_default_slides(prs)
-
     tables = {table.key: table for table in analysis.tables}
     _cover_slide(prs, analysis)
     _key_deal_issues_slide(prs, analysis.findings)
@@ -55,7 +52,6 @@ def render_report(analysis: AnalysisResult, questions: tuple[ManagementQuestion,
     if questions:
         _management_questions_slide(prs, questions, analysis.findings)
     _final_quality_slide(prs, analysis)
-
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(output_path)
@@ -105,11 +101,7 @@ def _cover_slide(prs: Presentation, analysis: AnalysisResult) -> None:
         f"Material findings: {len(analysis.findings)}",
     ]
     _bullet_box(slide, bullets, Inches(0.82), Inches(3.0), Inches(6.1), Inches(1.6), size=13)
-    _metric_tiles(slide, [
-        ("Findings", len(analysis.findings)),
-        ("Questions", "AI-led" if analysis.findings else 0),
-        ("Latest FY", analysis.latest_annual_period or "N/A"),
-    ], Inches(7.25), Inches(1.55))
+    _metric_tiles(slide, [("Findings", len(analysis.findings)), ("Questions", "AI-led" if analysis.findings else 0), ("Latest FY", analysis.latest_annual_period or "N/A")], Inches(7.25), Inches(1.55))
 
 
 def _key_deal_issues_slide(prs: Presentation, findings: tuple[Finding, ...]) -> None:
@@ -119,23 +111,14 @@ def _key_deal_issues_slide(prs: Presentation, findings: tuple[Finding, ...]) -> 
     if not top:
         _statement(slide, "No material deterministic findings were triggered by the available data.", Inches(0.8), Inches(1.7), Inches(11.7), Inches(0.7))
         return
-    rows = []
-    for finding in top:
-        rows.append([
-            finding.priority,
-            _short(_deal_issue_title(finding), 38),
-            _short(_figure_from_metrics(finding), 25),
-            _short(_so_what(finding), 92),
-            _short(_ask_management(finding), 82),
-        ])
+    rows = [[finding.priority, _short(_deal_issue_title(finding), 38), _short(_figure_from_metrics(finding), 25), _short(_so_what(finding), 92), _short(_ask_management(finding), 82)] for finding in top]
     _table(slide, ["Priority", "Issue", "Figure", "Why it matters", "Question for management"], rows, Inches(0.55), Inches(1.45), Inches(12.2), Inches(4.95), widths=[0.9, 2.25, 1.45, 3.75, 3.85])
 
 
 def _annual_snapshot_slide(prs: Presentation, table: AnalysisTable, findings: tuple[Finding, ...]) -> None:
     slide = _blank(prs)
     _decorate(slide, "Annual snapshot", "Movement and composition of OCL balances")
-    rows = _limit_rows(table.rows, 8)
-    _table(slide, table.headers, rows, Inches(0.55), Inches(1.35), Inches(7.6), Inches(4.9))
+    _table(slide, table.headers, _limit_rows(table.rows, 8), Inches(0.55), Inches(1.35), Inches(7.6), Inches(4.9))
     bullets = [_short(f.text, 130) for f in findings[:4]] or ["No material annual movement finding was triggered."]
     _side_panel(slide, "Key messages", bullets, Inches(8.45), Inches(1.35), Inches(4.25), Inches(4.9))
 
@@ -144,7 +127,7 @@ def _rollforward_slide(prs: Presentation, table: AnalysisTable) -> None:
     slide = _blank(prs)
     _decorate(slide, "Roll-forward / movement review", "Opening, movements and closing evidence where supported")
     _table(slide, table.headers, _limit_rows(table.rows, 9), Inches(0.55), Inches(1.35), Inches(12.2), Inches(4.9))
-    _note(slide, "Movements are shown only when the data-preparation and semantic handoff provide an explicit movement dataset and movement roles.")
+    _note(slide, "Movements are shown only when the semantic handoff provides an explicit movement dataset and movement roles.")
 
 
 def _seasonality_slide(prs: Presentation, table: AnalysisTable) -> None:
@@ -195,12 +178,7 @@ def _management_questions_slide(prs: Presentation, questions: tuple[ManagementQu
 def _final_quality_slide(prs: Presentation, analysis: AnalysisResult) -> None:
     slide = _blank(prs)
     _decorate(slide, "Data sources and quality checks", "Traceability and unsupported-analysis discipline")
-    bullets = [
-        "PPT is generated from the same reconciled AnalysisResult used by the Excel databook.",
-        "Slides are created only when the supporting analysis table or finding exists.",
-        "Amounts and materiality conclusions are not recalculated in PowerPoint.",
-        "Unsupported monthly, roll-forward or seasonality analyses are omitted rather than shown blank.",
-    ]
+    bullets = ["PPT is generated from the same reconciled AnalysisResult used by the Excel databook.", "Slides are created only when the supporting analysis table or finding exists.", "Amounts and materiality conclusions are not recalculated in PowerPoint.", "Unsupported monthly, roll-forward or seasonality analyses are omitted rather than shown blank."]
     _bullet_box(slide, bullets, Inches(0.8), Inches(1.55), Inches(11.2), Inches(2.4), size=14)
     _metric_tiles(slide, [("Tables", len(analysis.tables)), ("Findings", len(analysis.findings)), ("Latest FY", analysis.latest_annual_period or "N/A")], Inches(1.0), Inches(4.4))
 
@@ -416,4 +394,3 @@ def _ask_management(finding: Finding) -> str:
     if finding.finding_type == "TOTAL_CHANGE":
         return "Explain the main operational/accounting drivers of the overall OCL movement."
     return "Provide support for the underlying obligation, classification and expected settlement."
-}
