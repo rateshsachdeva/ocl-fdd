@@ -26,8 +26,13 @@ class AIHostRunResult:
 
 
 def available_providers() -> tuple[str, ...]:
-    """Return supported AI CLIs currently available on PATH."""
-    return tuple(name for name in PROVIDERS if shutil.which(name))
+    """Return supported AI CLIs that are actually runnable, in stable order."""
+    available: list[str] = []
+    for name in PROVIDERS:
+        executable = shutil.which(name)
+        if executable and _probe_cli(executable):
+            available.append(name)
+    return tuple(available)
 
 
 def run_ai_host(
@@ -39,7 +44,7 @@ def run_ai_host(
 ) -> AIHostRunResult:
     """Run one AI_HOST checkpoint through Codex, Claude Code or Copilot CLI.
 
-    ``provider=auto`` tries installed providers in stable preference order. An
+    ``provider=auto`` tries runnable providers in stable preference order. An
     explicit provider attempts only that CLI. A CLI run counts as successful
     only when it exits successfully *and* the checkpoint artifacts requested by
     the coordination contract were actually created or updated. This prevents a
@@ -52,7 +57,7 @@ def run_ai_host(
 
     candidates = list(available_providers()) if provider == "auto" else [provider]
     if not candidates:
-        return AIHostRunResult(None, (), False, "No supported AI CLI is installed on PATH.")
+        return AIHostRunResult(None, (), False, "No runnable supported AI CLI was found on PATH.")
 
     prompt = _build_prompt(coordination)
     required_artifacts = _required_artifact_paths(coordination, repo_root)
@@ -127,6 +132,28 @@ def run_ai_host(
         False,
         "; ".join(errors) or "AI host did not complete the checkpoint.",
     )
+
+
+def _probe_cli(executable: str, timeout_seconds: int = 8) -> bool:
+    """Check that a PATH entry is a runnable CLI, not an installer/bootstrap shim."""
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            timeout=timeout_seconds,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    output = (completed.stdout or "").casefold()
+    installer_prompt = (
+        "cannot find github copilot cli" in output
+        or "install github copilot cli?" in output
+    )
+    return completed.returncode == 0 and not installer_prompt
 
 
 def _required_artifact_paths(coordination: dict[str, Any], repo_root: Path) -> tuple[Path, ...]:
