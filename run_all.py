@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -62,10 +63,20 @@ def main() -> int:
         parser.error("--max-ai-steps must be at least 1")
 
     paths = ensure_runtime_folders()
+    session_started = time.perf_counter()
+    python_pass_times: list[float] = []
+    ai_times: list[tuple[str, float]] = []
+
+    def finish(code: int) -> int:
+        _print_runtime_summary(session_started, python_pass_times, ai_times)
+        return code
+
     if args.ai_host == "copilot":
         print("AI host: GitHub Copilot CLI")
+        print("AI policy: Copilot runs only at explicit AI_HOST reasoning checkpoints; Python owns routine processing, calculations and rendering.")
 
     for ai_step in range(args.max_ai_steps + 1):
+        pass_started = time.perf_counter()
         try:
             result = run_end_to_end(
                 paths,
@@ -74,27 +85,49 @@ def main() -> int:
                 skip_report=args.skip_report,
             )
         except (FileNotFoundError, ValueError, RuntimeError, InputContractError, JudgmentError, SemanticHandoffError, FinalQAError) as error:
+            elapsed = time.perf_counter() - pass_started
+            python_pass_times.append(elapsed)
+            print(f"Python workflow pass {len(python_pass_times)} stopped after {_format_duration(elapsed)}.")
             print(f"OCL stopped safely: {error}")
-            return 2
+            return finish(2)
 
+        elapsed = time.perf_counter() - pass_started
+        python_pass_times.append(elapsed)
+        print(
+            f"Python workflow pass {len(python_pass_times)} completed in {_format_duration(elapsed)} "
+            f"-> {result.state}"
+        )
         _print_result_summary(result)
 
         if result.coordination:
             actor = str(result.coordination.get("next_actor") or "").upper()
-            action = result.coordination.get("next_action")
+            action = str(result.coordination.get("next_action") or "UNKNOWN")
 
             if actor == "AI_HOST":
                 if args.ai_host == "external":
                     print(f"AI host action: {action}. Complete the referenced artifacts and rerun.")
-                    return 0
+                    return finish(0)
                 if ai_step >= args.max_ai_steps:
                     print(
                         f"OCL stopped safely after {args.max_ai_steps} automatic AI steps. "
                         "Review the latest workflow coordination before continuing."
                     )
-                    return 2
+                    return finish(2)
 
+                print(
+                    f"Starting Copilot AI checkpoint {len(ai_times) + 1}: {action}. "
+                    "No deterministic calculation is being delegated to AI.",
+                    flush=True,
+                )
+                ai_started = time.perf_counter()
                 host_result = run_ai_host(result.coordination, ROOT)
+                ai_elapsed = time.perf_counter() - ai_started
+                ai_times.append((action, ai_elapsed))
+                print(
+                    f"Copilot AI checkpoint {len(ai_times)} finished in {_format_duration(ai_elapsed)}: {action}",
+                    flush=True,
+                )
+
                 if not host_result.success:
                     print(f"Automatic GitHub Copilot host unavailable or failed: {host_result.message}")
                     if "authentication" in host_result.message.casefold() or "no authentication information" in host_result.message.casefold():
@@ -102,17 +135,17 @@ def main() -> int:
                     else:
                         print("Run `copilot --version` to confirm GitHub Copilot CLI is installed and callable, then rerun `python run_all.py`.")
                     print(f"AI host action remains: {action}. No workflow artifact was accepted, so the financial workflow has not advanced incorrectly.")
-                    return 0
+                    return finish(0)
 
-                print("GitHub Copilot completed the AI_HOST checkpoint. Resuming workflow...")
+                print("GitHub Copilot completed the AI_HOST checkpoint. Resuming deterministic workflow...")
                 continue
 
             if actor == "HUMAN":
                 print(f"Human review required: {action}. Review only the identified judgment/approval matters, then rerun.")
-                return 0
+                return finish(0)
 
             print(f"Workflow coordination requires review: {action or actor or 'UNKNOWN'}")
-            return 0
+            return finish(0)
 
         published = None
         if result.databook and result.state in {"READY", "DATABOOK_READY"}:
@@ -124,7 +157,7 @@ def main() -> int:
                 )
             except OSError as error:
                 print(f"OCL stopped safely: completed outputs could not be versioned: {error}")
-                return 2
+                return finish(2)
             print(f"Published deliverable version: v{published.version}")
 
         databook_path = published.databook if published is not None else result.databook
@@ -136,16 +169,16 @@ def main() -> int:
             print(f"Final QA: {result.qa.get('status')}")
         if args.part1_only:
             print("OCL databook: READY")
-            return 0
+            return finish(0)
         print(f"Part 2 findings: {result.findings}")
         print(f"Part 3 management questions: {result.questions}")
         if report_path:
             print(f"Report: {report_path}")
         print("OCL workflow: READY")
-        return 0 if result.state == "READY" else 2
+        return finish(0 if result.state == "READY" else 2)
 
     print("OCL stopped safely: automatic workflow loop exhausted unexpectedly.")
-    return 2
+    return finish(2)
 
 
 def _print_result_summary(result) -> None:
@@ -159,6 +192,37 @@ def _print_result_summary(result) -> None:
     if result.coordination:
         print("Workflow coordination:")
         print(json.dumps(result.coordination, indent=2, default=str))
+
+
+def _print_runtime_summary(
+    session_started: float,
+    python_pass_times: list[float],
+    ai_times: list[tuple[str, float]],
+) -> None:
+    total_elapsed = time.perf_counter() - session_started
+    python_elapsed = sum(python_pass_times)
+    ai_elapsed = sum(elapsed for _action, elapsed in ai_times)
+    print("Runtime summary:")
+    print(
+        f"  Total elapsed: {_format_duration(total_elapsed)} | "
+        f"Python workflow passes: {_format_duration(python_elapsed)} across {len(python_pass_times)} pass(es) | "
+        f"Copilot AI: {_format_duration(ai_elapsed)} across {len(ai_times)} checkpoint(s)"
+    )
+    if ai_times:
+        for index, (action, elapsed) in enumerate(ai_times, start=1):
+            print(f"  AI {index}: {action} -> {_format_duration(elapsed)}")
+    else:
+        print("  AI usage: none for this invocation.")
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{int(minutes)}m {remainder:.0f}s"
+    hours, minutes = divmod(int(minutes), 60)
+    return f"{hours}h {minutes}m {remainder:.0f}s"
 
 
 if __name__ == "__main__":
