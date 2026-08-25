@@ -66,6 +66,8 @@ def run_ai_host(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except subprocess.TimeoutExpired:
         return AIHostRunResult("copilot", ("copilot",), False, f"GitHub Copilot CLI timed out after {timeout_seconds} seconds.")
@@ -111,6 +113,8 @@ def _probe_cli(executable: str, timeout_seconds: int = 8) -> bool:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except (subprocess.TimeoutExpired, OSError):
         return False
