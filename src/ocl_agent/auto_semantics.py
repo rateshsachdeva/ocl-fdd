@@ -43,7 +43,6 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
     manifest = _read_json(data_prep_output / "execution_manifest.json")
     package_id = str(metadata.get("workflow_run_id") or manifest.get("execution_id") or data_prep_output.name)
 
-    # A package-specific confirmed handoff, including a reviewed one, always wins.
     if target.exists():
         existing = _read_json(target)
         if str(existing.get("package_id")) == package_id and str(existing.get("status", "")).upper() == "CONFIRMED":
@@ -115,6 +114,7 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
 
     add_context("revenue_context.csv", "REVENUE_CONTEXT", ("Amount", "Revenue"))
     add_context("payroll_context.csv", "PAYROLL_CONTEXT", ("Amount", "Payroll"))
+    add_context("expense_context.csv", "EXPENSE_CONTEXT", ("Amount", "Expense"))
 
     if not any(set(item["usages"]) & {"OCL_RECORDS", "MONTHLY_RECORDS"} for item in datasets):
         return None
