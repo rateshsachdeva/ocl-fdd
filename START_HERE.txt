@@ -4,71 +4,83 @@ OCL FDD - START HERE
 1. Put the raw client Excel files in:
        references/source/
 
-2. One-time GitHub Copilot CLI setup:
+2. Install Python dependencies:
+       pip install -r requirements.txt
+
+   Python 3.11 is recommended.
+
+3. Choose one GitHub Copilot route.
+
+   A) VS Code GitHub Copilot coding agent (recommended for a recipient with
+      GitHub Copilot Enterprise):
+
+      Ask the agent to run the skill end to end and follow AGENTS.md.
+      The repository instructions use:
+
+       python run_all.py --ai-host external
+
+   B) Plain terminal / PowerShell:
+
        copilot --version
        copilot login --web-flow
-
-   Complete the GitHub sign-in once. If Copilot is provided through an organization
-   or enterprise, the Copilot CLI policy must be enabled by that organization.
-
-3. From the repository root run:
        python run_all.py
 
-4. The workflow is:
+      For this route, Copilot CLI must be installed, authenticated, and allowed
+      by the recipient's organization/enterprise policy. A Copilot Enterprise
+      seat alone does not override an organization policy that disables CLI.
+
+4. The normal workflow is:
        raw Excel
-         -> full fdd-data-preparation
-            -> Python profiling
-            -> GitHub Copilot dataset understanding + Processing Plan
-            -> Python deterministic execution + completeness + lineage
-         -> published standardized long/flat data
-         -> OCL semantic interpretation
-         -> OCL judgments + hard controls
-         -> Python metrics
-         -> GitHub Copilot FDD-partner Deal Issues + Key Findings + Q&A
-         -> styling + final QA + PPT
+         -> Python profiling / prepared evidence
+         -> AI: UNDERSTAND_AND_PLAN
+         -> Python deterministic execution + completeness + lineage
+         -> OCL reviewed judgments + hard controls
+         -> Python databook + evidence-aware analysis
+         -> AI: FDD-partner Deal Issues + Key Findings + Q&A
+         -> Python styling + final QA + PPT
          -> versioned final publication
 
-5. Final deliverables are versioned on every completed run:
+5. A HUMAN / REVIEW_OCL_JUDGMENTS checkpoint is intentional for a new source when
+   scope, category/hierarchy, WC/debt-like or normal/one-off treatment has not
+   been reviewed yet. Review the generated review artifacts and rerun. Do not
+   force AI to mark an unsupported accounting/FDD judgment as reviewed.
+
+6. Evidence-aware analysis:
+       Analysis Coverage
+       Seasonality / monthly volatility
+       Year-end build / unwind
+       Recurrence / persistence proxy
+       Normalization reference (not an automatic adjustment)
+       Stale-balance / new-balance / cliff diagnostics
+       Debt-like / one-off / concentration
+       Movement utilisation / release / reversal when movement data exists
+       Accrual-to-expense only when explicit expense/P&L context exists
+
+   Adequacy, missing-accrual completeness, double counting and true aging are
+   NOT inferred from aggregate balance history. They remain unsupported/partial
+   unless the required detailed evidence is actually supplied.
+
+7. Final deliverables are versioned on every completed run:
        output/OCL_Databook_v1.xlsx
        output/OCL_Report_v1.pptx
 
-   The next completed run creates:
-       output/OCL_Databook_v2.xlsx
-       output/OCL_Report_v2.pptx
+   The next completed run creates v2, then v3, and so on. Existing versioned
+   deliverables are never overwritten.
 
-   and so on. The workbook and report from the same run always receive the same
-   version number. Existing versioned deliverables are never overwritten.
+AI CHECKPOINT SAFETY
+--------------------
+Python owns source values, calculations, reconciliations, controls and rendering.
+AI writes only the contextual reasoning artifacts requested by workflow
+coordination. Every required AI artifact must be newly created/updated before the
+workflow can advance.
 
-   During processing, the workflow may temporarily use:
-       output/OCL_Databook.xlsx
-       output/OCL_Report.pptx
-
-   as working/latest files. These are not the historical versioned snapshots.
-
-AI CHECKPOINTS
---------------
-`python run_all.py` uses GitHub Copilot CLI as the automatic AI host.
-
-The Python financial core does not call a model API. Copilot is used only for the
-contextual AI reasoning artifacts requested by the workflow. Python continues to
-own source values, calculations, reconciliations, controls and rendering.
-
-A Copilot checkpoint counts as complete only when the exact required artifact(s)
-were actually created or updated. Authentication/install failures therefore stop
-safely instead of advancing or looping.
-
-If Copilot reports "No authentication information found", run:
+If the terminal route reports missing authentication, run:
 
        copilot login --web-flow
 
-then rerun:
+If the organization blocks Copilot CLI, use the VS Code coding-agent route.
 
-       python run_all.py
-
-If you deliberately want an already-open interactive agent session to complete an
-AI checkpoint instead of spawning Copilot CLI, use:
-
-       python run_all.py --ai-host external
+See HANDOFF_TO_NEW_USER.md for the complete recipient checklist.
 
 Do not commit client source files. references/source/ is intentionally ignored by Git.
 Do not bypass failed controls or create balancing plugs.
