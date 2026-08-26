@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.chart.legend import Legend
+from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font, PatternFill
 
 BLACK = "000000"
 GRAND_TOTAL = "E5E5E5"
-PERIOD_FORMAT = "dd-mmm-yy"
+PERIOD_FORMAT = "mmmyy"
 FORMULA_SUM_RANGE = re.compile(r"^=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$", re.IGNORECASE)
 
 
@@ -40,6 +42,9 @@ def apply_databook_display_preferences(path: Path, handoff: Any | None = None) -
         sheet = workbook[name]
         _hide_redundant_subtotals(sheet)
         _format_total_ocl(sheet)
+
+    if "Item Monthly Charts" in workbook.sheetnames:
+        _format_monthly_charts(workbook["Item Monthly Charts"])
 
     workbook.save(path)
     return path
@@ -125,6 +130,26 @@ def _parse_period_end(value: str) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _format_monthly_charts(sheet) -> None:
+    """Keep the monthly balance/LTM legend visible and bars closely spaced."""
+    for chart in getattr(sheet, "_charts", []):
+        charts = getattr(chart, "_charts", None) or [chart]
+        bar_chart = charts[0]
+        if hasattr(bar_chart, "gapWidth"):
+            bar_chart.gapWidth = 40
+        if hasattr(chart, "gapWidth"):
+            chart.gapWidth = 40
+
+        # The combined chart uses the root legend. Recreate it explicitly so
+        # Excel always renders it even when the component charts had no titles.
+        chart.legend = Legend(legendPos="b", overlay=False)
+
+        if getattr(bar_chart, "ser", None):
+            bar_chart.ser[0].tx = SeriesLabel(v="Monthly balance")
+        if len(charts) > 1 and getattr(charts[1], "ser", None):
+            charts[1].ser[0].tx = SeriesLabel(v="LTM 12M average")
 
 
 def _find_category_layout(sheet) -> tuple[int, int, int] | None:
