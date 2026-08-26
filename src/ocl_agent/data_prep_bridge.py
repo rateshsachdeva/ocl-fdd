@@ -156,7 +156,17 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         warnings.append("fdd-data-preparation published with warnings; see execution_manifest.json and databook_metadata.json.")
     if standardized_output is not None:
         try:
-            bootstrap.sync_runtime_knowledge()
+            knowledge_report = bootstrap.sync_runtime_knowledge(
+                source_dir=source_dir,
+                source_fingerprint=source_fingerprint,
+            )
+            if isinstance(knowledge_report, dict):
+                quarantined = int(knowledge_report.get("quarantined_rows") or 0)
+                if quarantined:
+                    warnings.append(
+                        f"Reusable knowledge promotion quarantined {quarantined} source-specific candidate row(s); "
+                        "the published financial package is unaffected."
+                    )
         except Exception as error:  # knowledge persistence must never invalidate a published financial package
             warnings.append(f"Reusable knowledge sync warning: {error}")
 
