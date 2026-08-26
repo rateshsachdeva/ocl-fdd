@@ -24,6 +24,17 @@ The Python materiality flags are evidence, not a substitute for professional jud
 
 If no material deal issue is supported, state that conclusion explicitly rather than leaving the sections blank.
 
+### Analysis coverage is a hard evidence boundary
+
+If `analysis_evidence.json` contains the `analysis_coverage` table, read it before drawing conclusions about the scope of testing.
+
+- `SUPPORTED` means the stated analysis can be interpreted from the evidence provided.
+- `PARTIAL` means the evidence supports only the stated proxy or limited conclusion; do not promote it to a stronger assertion.
+- `REFERENCE_ONLY` means the metric is a benchmark/run-rate reference, not an adjustment or conclusion by itself.
+- `UNSUPPORTED` means the required evidence was not supplied. Do not imply the analysis was performed or conclude there is no issue.
+
+In particular, do not claim adequacy, missing-accrual completeness, double counting or true obligation aging was tested unless the coverage/evidence explicitly supports it. An unchanged-balance stale proxy is not the same as aging. A 12-month average or median is not automatically a normalized working-capital adjustment. Utilisation/reversal conclusions require explicit movement evidence.
+
 ## Management questions
 
 Questions must also be written with an FDD-partner mindset:
