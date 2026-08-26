@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 PUBLISHABLE_STATUSES = {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
+BUILTIN_KNOWLEDGE_RELATIVE = "fdd-data-preparation/knowledge_system/BUILTIN_FDD_SOURCE_KNOWLEDGE.md"
 COORDINATION_KEYS = (
     "next_actor",
     "must_continue",
@@ -131,6 +132,7 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     coordination = _coordination_from_status(status)
     coordination.setdefault("source_fingerprint", source_fingerprint)
     coordination.setdefault("source_package_root", str(source_package_root))
+    _attach_builtin_planning_knowledge(coordination, repo_root)
     run_id = status.get("run_id")
     current_execution_id = str(status.get("execution_id") or "")
     latest = output_root / "latest"
@@ -188,6 +190,28 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         coordination=coordination,
         raw_status=status,
         warnings=tuple(warnings),
+    )
+
+
+def _attach_builtin_planning_knowledge(coordination: dict[str, Any], repo_root: Path) -> None:
+    """Reference the curated pattern library on the dataset-understanding checkpoint.
+
+    The knowledge pack is deliberately referenced through coordination rather
+    than embedded into the financial Python core. AI hosts can read it directly,
+    while current source/profile evidence remains authoritative.
+    """
+    action = str(coordination.get("next_action") or "").upper()
+    actor = str(coordination.get("next_actor") or "").upper()
+    if actor != "AI_HOST" or action != "UNDERSTAND_AND_PLAN":
+        return
+    knowledge_path = Path(repo_root) / BUILTIN_KNOWLEDGE_RELATIVE
+    if not knowledge_path.is_file():
+        return
+    coordination.setdefault("builtin_knowledge", BUILTIN_KNOWLEDGE_RELATIVE)
+    coordination.setdefault("fast_start_mode", True)
+    coordination.setdefault(
+        "knowledge_usage_rule",
+        "Use built-in knowledge as low-priority hypotheses; validate against current profile/samples and inspect only material unresolved ambiguities.",
     )
 
 
