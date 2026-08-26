@@ -26,7 +26,7 @@ def write_analysis_request(
     required_artifact: Path,
     instruction_path: Path,
 ) -> Path:
-    """Write the source-bound evidence package the AI host must interpret."""
+    """Write the finalized Python-analysis evidence package the AI host may interpret."""
     output_path = Path(output_path)
     required_artifact = Path(required_artifact)
     evidence = {
@@ -42,9 +42,11 @@ def write_analysis_request(
         valid_refs.extend(f"table:{table.key}:{index}" for index, _row in enumerate(table.rows))
 
     payload = {
-        "request_version": "1.0",
+        "request_version": "1.1",
         "next_actor": "AI_HOST",
         "next_action": "WRITE_FDD_PARTNER_ANALYSIS",
+        "analysis_status": "FINALIZED",
+        "source_scope": "PYTHON_ANALYSIS_ONLY",
         "instruction_path": str(instruction_path),
         "required_artifact": str(required_artifact),
         "evidence_hash": evidence_hash,
@@ -52,9 +54,12 @@ def write_analysis_request(
         "evidence": evidence,
         "rules": [
             "Think and write as an experienced FDD partner.",
-            "Use only supplied evidence and reconciled OCL outputs.",
+            "The deterministic Python analysis is finalized before this checkpoint.",
+            "Use only the supplied finalized analysis evidence; do not reopen raw client data to create new findings.",
             "Do not recalculate, invent or override financial values or materiality.",
-            "Write Deal Issues, Key Findings and Management Q&A through the active AI host.",
+            "Triangulate related analysis tables/findings before deciding whether a point is a Deal Issue, Key Finding or Q&A item.",
+            "Separate factual evidence from FDD implication and from evidence limitations.",
+            "State the specific fact that would confirm, rebut or change a provisional FDD conclusion.",
             "Do not create filler findings or questions merely to populate a sheet.",
             "If no material issue is supported, state that conclusion explicitly rather than leaving the output blank.",
         ],
@@ -65,7 +70,7 @@ def write_analysis_request(
 
 
 def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, Any]:
-    """Load and validate AI narrative against the exact Python evidence package."""
+    """Load and validate AI narrative against the exact finalized Python evidence package."""
     path = Path(path)
     request_path = Path(request_path)
     if not path.exists():
@@ -74,6 +79,8 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise AnalysisInterpretationError("analysis_interpretation.json must contain a JSON object.")
+    if request.get("analysis_status") != "FINALIZED" or request.get("source_scope") != "PYTHON_ANALYSIS_ONLY":
+        raise AnalysisInterpretationError("Partner interpretation may only run from finalized Python analysis evidence.")
     if payload.get("status") != "COMPLETED":
         raise AnalysisInterpretationError("analysis_interpretation.json status must be COMPLETED.")
     if payload.get("evidence_hash") != request.get("evidence_hash"):
@@ -107,7 +114,7 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
         _validate_item(
             item,
             kind="deal issue",
-            required=("id", "title", "so_what", "evidence", "management_focus"),
+            required=("id", "title", "fdd_lens", "so_what", "evidence", "evidence_limit", "management_focus"),
             valid_refs=valid_refs,
             valid_findings=valid_findings,
         )
@@ -118,7 +125,18 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
         _validate_item(
             item,
             kind="key finding",
-            required=("id", "area", "metric", "period_item", "so_what", "evidence", "materiality"),
+            required=(
+                "id",
+                "fdd_lens",
+                "area",
+                "metric",
+                "period_item",
+                "so_what",
+                "evidence",
+                "evidence_limit",
+                "fact_to_establish",
+                "materiality",
+            ),
             valid_refs=valid_refs,
             valid_findings=valid_findings,
         )
@@ -129,7 +147,7 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
         _validate_item(
             item,
             kind="management question",
-            required=("id", "theme", "question", "evidence", "priority"),
+            required=("id", "fdd_lens", "theme", "question", "why_it_matters", "evidence", "priority"),
             valid_refs=valid_refs,
             valid_findings=valid_findings,
         )
