@@ -1,7 +1,8 @@
 """Render validated AI-host narrative into Deal Issues, Key Findings and Q&A.
 
 All financial figures remain linked to deterministic workbook schedules. The AI
-host supplies interpretation and question wording only.
+host supplies interpretation and question wording only after the Python analysis
+is finalized.
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ def apply_partner_interpretation(
 def _write_deal_issues(workbook, finding_by_id: dict, interpretation: dict) -> None:
     sheet = workbook.create_sheet("Deal Issues")
     sheet["A1"] = PROJECT_LABEL
-    sheet["A2"] = "Key deal issues — FDD partner interpretation"
+    sheet["A2"] = "Key deal issues — FDD partner interpretation of finalized analysis"
     issues = interpretation.get("deal_issues") or []
     if not issues:
         sheet["A4"] = "No material deal issue identified from the available evidence"
@@ -52,22 +53,37 @@ def _write_deal_issues(workbook, finding_by_id: dict, interpretation: dict) -> N
     for issue in issues:
         linked = finding_by_id.get(str(issue.get("linked_finding_id") or ""))
         priority = str(issue.get("priority") or "MEDIUM").upper()
-        sheet.cell(row, 1, f"{priority} | {issue['title']}")
+        lens = str(issue.get("fdd_lens") or "")
+        sheet.cell(row, 1, f"{priority} | {issue['title']} | {lens}")
         sheet.cell(row, 1).font = Font(bold=True)
         sheet.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=4)
         sheet.cell(row + 1, 1, issue["so_what"])
         sheet.cell(row + 2, 1, "Figure")
         sheet.cell(row + 2, 2, _finding_formula(workbook, linked) if linked else "")
-        sheet.cell(row + 3, 1, f"Evidence: {issue['evidence']}")
+        sheet.cell(row + 3, 1, f"Evidence: {issue['evidence']} | Evidence limitation: {issue['evidence_limit']}")
         sheet.merge_cells(start_row=row + 3, start_column=1, end_row=row + 3, end_column=4)
-        sheet.cell(row + 4, 1, f"Management focus: {issue['management_focus']}")
+        sheet.cell(row + 4, 1, f"Fact to establish: {issue['management_focus']}")
         sheet.merge_cells(start_row=row + 4, start_column=1, end_row=row + 4, end_column=4)
         row += 6
 
 
 def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> None:
-    sheet = _analysis_sheet(workbook, "Key Findings", "FDD partner interpretation of validated OCL evidence")
-    headers = ["ID", "Area", "Metric", "FY periods / Item", "Movement", "Magnitude", "So what", "Evidence", "Materiality", "Ask management"]
+    sheet = _analysis_sheet(workbook, "Key Findings", "FDD partner interpretation of finalized Python OCL analysis")
+    headers = [
+        "ID",
+        "FDD Lens",
+        "Area",
+        "Metric",
+        "FY periods / Item",
+        "Movement",
+        "Magnitude",
+        "FDD implication / So what",
+        "Evidence",
+        "Evidence limitation",
+        "Fact to establish",
+        "Materiality",
+        "Ask management",
+    ]
     for col, value in enumerate(headers, start=2):
         sheet.cell(7, col, value)
 
@@ -83,6 +99,7 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
             )
         values = [
             item["id"],
+            item["fdd_lens"],
             item["area"],
             item["metric"],
             item["period_item"],
@@ -90,6 +107,8 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
             magnitude,
             item["so_what"],
             item["evidence"],
+            item["evidence_limit"],
+            item["fact_to_establish"],
             item["materiality"],
             item.get("ask_management") or "",
         ]
@@ -98,8 +117,8 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
 
 
 def _write_qanda(workbook, interpretation: dict) -> tuple[ManagementQuestion, ...]:
-    sheet = _analysis_sheet(workbook, "Q&A", "FDD partner questions arising from validated OCL evidence")
-    headers = ["#", "Theme", "Question", "Evidence", "Management response"]
+    sheet = _analysis_sheet(workbook, "Q&A", "FDD partner questions arising only from finalized Python OCL analysis")
+    headers = ["#", "FDD Lens", "Theme", "Question", "Why it matters", "Evidence trigger", "Management response"]
     for col, value in enumerate(headers, start=2):
         sheet.cell(7, col, value)
 
@@ -114,15 +133,17 @@ def _write_qanda(workbook, interpretation: dict) -> tuple[ManagementQuestion, ..
     for number, item in enumerate(items, start=1):
         row = number + 7
         sheet.cell(row, 2, number)
-        sheet.cell(row, 3, item["theme"])
-        sheet.cell(row, 4, item["question"])
-        sheet.cell(row, 5, item["evidence"])
-        sheet.cell(row, 6, "")
+        sheet.cell(row, 3, item["fdd_lens"])
+        sheet.cell(row, 4, item["theme"])
+        sheet.cell(row, 5, item["question"])
+        sheet.cell(row, 6, item["why_it_matters"])
+        sheet.cell(row, 7, item["evidence"])
+        sheet.cell(row, 8, "")
         output.append(
             ManagementQuestion(
                 question_id=str(item["id"]),
                 question=str(item["question"]),
-                rationale=str(item["evidence"]),
+                rationale=f"{item['why_it_matters']} Evidence: {item['evidence']}",
                 evidence_references=tuple(str(ref) for ref in item.get("evidence_refs") or []),
                 linked_finding_id=(str(item["linked_finding_id"]) if item.get("linked_finding_id") else None),
                 priority=str(item.get("priority") or "MEDIUM").upper(),
