@@ -35,6 +35,7 @@ MEDIUM_BLUE = Side(style="medium", color=KPMG_BLUE)
 FRONT_ORDER = [
     "Deal Issues", "Key Findings", "Q&A", "Checks", "Balance by Category",
     "Roll-forward", "Seasonality", "Item Monthly Charts", "Analysis Summary",
+    "Analysis Coverage", "Additional Analysis",
 ]
 SUPPORT_ORDER = ["Flat File", "Movements", "TB", "Monthly Flat", "Monthly Balance", "Mapping", "UNMAPPED", "SCOPE_EXCLUDED"]
 
@@ -60,7 +61,7 @@ def apply_workbook_style(path: Path) -> Path:
             _unmapped_sheet(sheet)
         elif sheet.title == "SCOPE_EXCLUDED":
             _scope_excluded_sheet(sheet)
-        elif sheet.title in {"Analysis Summary", "Seasonality", "Item Monthly Charts", "Key Findings", "Q&A"}:
+        elif sheet.title in {"Analysis Summary", "Seasonality", "Item Monthly Charts", "Analysis Coverage", "Additional Analysis", "Key Findings", "Q&A"}:
             _analysis_sheet(sheet)
         elif sheet.title == "Deal Issues":
             _deal_issues_sheet(sheet)
@@ -291,11 +292,11 @@ def _analysis_sheet(sheet) -> None:
         if row + 1 <= sheet.max_row:
             _section_row(sheet, row, 2, sheet.max_column)
             _header_row(sheet, row + 1, 2, sheet.max_column)
-    if sheet.title in {"Key Findings", "Q&A", "Analysis Summary", "Seasonality", "Item Monthly Charts"}:
+    if sheet.title in {"Key Findings", "Q&A", "Analysis Summary", "Seasonality", "Item Monthly Charts", "Analysis Coverage"}:
         _section_row(sheet, 6, 2, sheet.max_column)
         _header_row(sheet, 7, 2, sheet.max_column)
     for row in range(8, sheet.max_row + 1):
-        wrap = sheet.title in {"Key Findings", "Q&A"}
+        wrap = sheet.title in {"Key Findings", "Q&A", "Analysis Coverage"}
         for col in range(2, sheet.max_column + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, str) and cell.value.startswith("="):
@@ -391,11 +392,11 @@ def _analysis_widths(sheet) -> None:
     for col in range(2, sheet.max_column + 1):
         header = str(sheet.cell(7, col).value or "")
         width = 14
-        if header in {"So what", "Evidence", "Ask management", "Question", "Management response"}:
+        if header in {"So what", "Evidence", "Ask management", "Question", "Management response", "Limitation / Interpretation"}:
             width = 42
         elif header in {"Theme", "Area", "Metric", "FY periods / Item"}:
             width = 22
-        elif header in {"Category"}:
+        elif header in {"Category", "Analysis"}:
             width = 28
         sheet.column_dimensions[get_column_letter(col)].width = width
 
