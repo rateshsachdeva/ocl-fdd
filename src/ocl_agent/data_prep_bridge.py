@@ -131,6 +131,29 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     coordination = _coordination_from_status(status)
     coordination.setdefault("source_fingerprint", source_fingerprint)
     coordination.setdefault("source_package_root", str(source_package_root))
+    context_warning: str | None = None
+    if (
+        str(coordination.get("next_actor") or "").upper() == "AI_HOST"
+        and str(coordination.get("next_action") or "").upper() == "UNDERSTAND_AND_PLAN"
+    ):
+        try:
+            context_path = bootstrap.build_reusable_knowledge_context(
+                runs_root=runs_root,
+                source_dir=source_dir,
+                source_fingerprint=source_fingerprint,
+            )
+            try:
+                context_value = str(Path(context_path).resolve().relative_to(repo_root))
+            except ValueError:
+                context_value = str(context_path)
+            coordination["reusable_knowledge_context"] = context_value
+            coordination["knowledge_usage_rule"] = (
+                "Read this compact context before source planning. Use it as supporting evidence only; "
+                "current profile/sample evidence overrides prior knowledge."
+            )
+        except Exception as error:
+            context_warning = f"Reusable knowledge context warning: {error}"
+
     run_id = status.get("run_id")
     current_execution_id = str(status.get("execution_id") or "")
     latest = output_root / "latest"
@@ -152,6 +175,8 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     )
 
     warnings: list[str] = []
+    if context_warning:
+        warnings.append(context_warning)
     if standardized_output is not None and published_status == "COMPLETED_WITH_WARNINGS":
         warnings.append("fdd-data-preparation published with warnings; see execution_manifest.json and databook_metadata.json.")
     if standardized_output is not None:

@@ -20,6 +20,7 @@ class _FakeBootstrap:
         self.fdd_data = _FakeFddData(status)
         self.knowledge_report = knowledge_report or {"accepted_rows": 0, "quarantined_rows": 0}
         self.knowledge_sync_calls = []
+        self.knowledge_context_calls = []
 
     def activate_full_runtime(self):
         return Path("runtime"), self.fdd_data
@@ -27,6 +28,13 @@ class _FakeBootstrap:
     def sync_runtime_knowledge(self, **kwargs):
         self.knowledge_sync_calls.append(dict(kwargs))
         return dict(self.knowledge_report)
+
+    def build_reusable_knowledge_context(self, **kwargs):
+        self.knowledge_context_calls.append(dict(kwargs))
+        path = Path(kwargs["runs_root"]) / "matched_knowledge.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# matched reusable knowledge\n", encoding="utf-8")
+        return path
 
 
 def _source(tmp_path: Path, text: str = "source-v1") -> Path:
@@ -95,6 +103,34 @@ def test_old_latest_is_not_visible_to_changed_source_package(tmp_path: Path, mon
     assert result.output_root != old_latest.parent
     assert result.source_fingerprint == data_prep_bridge.source_package_fingerprint(source)
     assert bootstrap.knowledge_sync_calls == []
+
+
+def test_understand_and_plan_receives_compact_reusable_knowledge_context(tmp_path: Path, monkeypatch):
+    work_root = tmp_path / "data_prep"
+    source = _source(tmp_path)
+    status = {
+        "state": "AWAITING_AI_PLANNING",
+        "run_id": "RUN_CONTEXT",
+        "next_actor": "AI_HOST",
+        "next_action": "UNDERSTAND_AND_PLAN",
+        "must_continue": True,
+    }
+    bootstrap = _FakeBootstrap(status)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
+
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+
+    context = result.coordination.get("reusable_knowledge_context")
+    assert context
+    assert (tmp_path / context).is_file()
+    assert "supporting evidence only" in result.coordination["knowledge_usage_rule"]
+    assert bootstrap.knowledge_context_calls == [
+        {
+            "runs_root": result.work_root,
+            "source_dir": source.resolve(),
+            "source_fingerprint": result.source_fingerprint,
+        }
+    ]
 
 
 def test_current_published_execution_remains_reusable_for_same_source(tmp_path: Path, monkeypatch):

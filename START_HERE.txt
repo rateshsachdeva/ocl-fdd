@@ -9,7 +9,21 @@ OCL FDD - START HERE
 
    Python 3.11 is recommended.
 
-3. Choose one GitHub Copilot route.
+3. OPTIONAL - teach a difficult source one workbook at a time.
+
+   For large or structurally difficult files, run for example:
+
+       python run_all.py --learn-source Finance_Pack.xlsx
+       python run_all.py --learn-source Balance_Sheet_Detail.xlsx
+
+   This runs data preparation / AI understanding for only the selected source,
+   promotes safe reusable knowledge, and stops before building the final OCL
+   Excel/PPT. The original file is copied for learning and is not modified.
+
+   Repeat for other difficult sources if useful. Then leave all relevant client
+   files together in references/source/ for the final engagement run.
+
+4. Choose one GitHub Copilot route for the final run.
 
    A) VS Code GitHub Copilot coding agent (recommended for a recipient with
       GitHub Copilot Enterprise):
@@ -29,9 +43,10 @@ OCL FDD - START HERE
       by the recipient's organization/enterprise policy. A Copilot Enterprise
       seat alone does not override an organization policy that disables CLI.
 
-4. The normal workflow is:
+5. The normal workflow is:
        raw Excel
          -> Python profiling / prepared evidence
+         -> Python matches compact reusable knowledge to current profile
          -> AI: UNDERSTAND_AND_PLAN
          -> Python deterministic execution + completeness + lineage
          -> OCL reviewed judgments + hard controls
@@ -40,12 +55,16 @@ OCL FDD - START HERE
          -> Python styling + final QA + PPT
          -> versioned final publication
 
-5. A HUMAN / REVIEW_OCL_JUDGMENTS checkpoint is intentional for a new source when
+   Reusable knowledge is supporting evidence only. Current source evidence wins.
+   Production AI must not use historical synthetic golden-truth/test-answer files
+   as an answer key.
+
+6. A HUMAN / REVIEW_OCL_JUDGMENTS checkpoint is intentional for a new source when
    scope, category/hierarchy, WC/debt-like or normal/one-off treatment has not
    been reviewed yet. Review the generated review artifacts and rerun. Do not
    force AI to mark an unsupported accounting/FDD judgment as reviewed.
 
-6. Evidence-aware analysis:
+7. Evidence-aware analysis:
        Analysis Coverage
        Seasonality / monthly volatility
        Year-end build / unwind
@@ -60,7 +79,7 @@ OCL FDD - START HERE
    NOT inferred from aggregate balance history. They remain unsupported/partial
    unless the required detailed evidence is actually supplied.
 
-7. Final deliverables are versioned on every completed run:
+8. Final deliverables are versioned on every completed final run:
        output/OCL_Databook_v1.xlsx
        output/OCL_Report_v1.pptx
 
@@ -73,6 +92,9 @@ Python owns source values, calculations, reconciliations, controls and rendering
 AI writes only the contextual reasoning artifacts requested by workflow
 coordination. Every required AI artifact must be newly created/updated before the
 workflow can advance.
+
+If an external agent is used for --learn-source, rerun the exact resume_command
+printed by workflow coordination so the same learning source remains selected.
 
 If the terminal route reports missing authentication, run:
 

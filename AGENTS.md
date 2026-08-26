@@ -18,7 +18,7 @@ Keep the normal workflow simple:
 
 ```text
 raw client files
-    -> deterministic Python discovery/profile + reusable knowledge
+    -> deterministic Python discovery/profile + matched reusable knowledge
     -> AI_HOST UNDERSTAND_AND_PLAN
     -> deterministic Python validation/reshape/lineage/publication
     -> deterministic OCL scope/mapping/controls/databook/analysis tables
@@ -34,6 +34,50 @@ Therefore a normal successful new-source run should require only two substantive
 2. **WRITE_FDD_PARTNER_ANALYSIS** — read Python-created analysis evidence and write Deal Issues, Key Findings and Management Q&A.
 
 Additional AI or human checkpoints are exception paths only when genuine ambiguity, missing canonical semantics, judgment review, or a control break requires them.
+
+## Fast reusable-knowledge planning
+
+The data-preparation layer owns reusable source-understanding knowledge. Source-controlled generic patterns live under:
+
+```text
+fdd-data-preparation/knowledge_system/
+```
+
+Locally learned/promoted knowledge lives under:
+
+```text
+work/data_prep/knowledge/
+```
+
+Before `UNDERSTAND_AND_PLAN`, Python may add `reusable_knowledge_context` to workflow coordination. This is a compact, source-matched knowledge packet built from generic patterns plus current-profile evidence.
+
+For an AI_HOST planning checkpoint:
+
+1. if `reusable_knowledge_context` exists, read it **first**;
+2. then read the referenced handoff/profile/samples and instructions;
+3. use matched prior patterns to shortcut familiar structure instead of rediscovering it from scratch;
+4. spend reasoning effort on genuine ambiguities or contradictions;
+5. always let current source evidence override reusable knowledge;
+6. never treat prior knowledge as a category/scope/mapping answer key.
+
+Production planning must **not** open historical synthetic golden-truth workbooks, `Expected_Results.xlsx`, generation-validation workbooks or old dataset-generation prompts. Those are testing/training design material, not production evidence.
+
+## One-source learning mode
+
+A user may deliberately teach the data-understanding layer one workbook at a time before running the final combined engagement. Use:
+
+```text
+python run_all.py --learn-source <source-file>
+```
+
+This is a **data-preparation / reusable-learning run only**. It must:
+
+- copy the selected source to a gitignored staging area without changing the original;
+- run the normal deterministic profile + `UNDERSTAND_AND_PLAN` + standardized publication for that one source;
+- promote only safe reusable knowledge after successful publication;
+- stop without creating the OCL Excel/PPT deliverables.
+
+After learning individual sources, the final production databook should still be run with the full relevant source package using normal `python run_all.py`, because cross-file reconciliation, P&L linkage, movement/settlement evidence and completeness testing depend on combined evidence.
 
 ## AI host continuation
 
@@ -65,11 +109,12 @@ When the workflow returns:
 
 the current agent must:
 
-1. read `relevant_instruction` and `handoff_path` plus referenced evidence;
-2. create/update exactly the required artifact(s);
-3. never invent source values or replace deterministic Python calculations with AI arithmetic;
-4. rerun `python run_all.py --ai-host external`;
-5. continue until `READY`, `FAILED`, or a genuine `HUMAN` checkpoint.
+1. if `reusable_knowledge_context` is present, read it first;
+2. read `relevant_instruction` and `handoff_path` plus referenced current-source evidence;
+3. create/update exactly the required artifact(s);
+4. never invent source values or replace deterministic Python calculations with AI arithmetic;
+5. rerun the exact `resume_command` from coordination (this preserves `--learn-source` when in learning mode);
+6. continue until `READY`, `FAILED`, a completed learning run, or a genuine `HUMAN` checkpoint.
 
 When the user says **“run the skill”** in Codex or Claude Code, run it end to end in external mode rather than stopping at internal AI checkpoints.
 
