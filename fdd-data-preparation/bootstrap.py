@@ -6,8 +6,8 @@ is known to be damaged in the historical bundle; the repository now provides a
 clean standalone wrapper outside the bundle. All required runtime modules still
 receive full CRC/decompression validation before activation.
 
-Reusable knowledge persistence/promotion is intentionally delegated to
-``knowledge_system/store.py`` so bootstrap remains focused on runtime lifecycle.
+Reusable knowledge persistence/promotion/context is intentionally delegated to
+``knowledge_system/`` so bootstrap remains focused on runtime lifecycle.
 """
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ REQUIRED_RUNTIME_PATHS = (
     "schemas/processing_plan.schema.json",
 )
 _KNOWLEDGE_MODULE_NAME = "_ocl_fdd_knowledge_system_store"
+_KNOWLEDGE_CONTEXT_MODULE_NAME = "_ocl_fdd_knowledge_system_context"
 
 
 def ensure_full_runtime() -> Path:
@@ -133,6 +134,21 @@ def sync_runtime_knowledge(
     )
 
 
+def build_reusable_knowledge_context(
+    *,
+    runs_root: Path,
+    source_dir: Path,
+    source_fingerprint: str,
+) -> Path:
+    """Build the compact matched knowledge packet for the current AI planning step."""
+    return _knowledge_context_module().build_context_packet(
+        ROOT.parent,
+        runs_root,
+        source_dir,
+        source_fingerprint,
+    )
+
+
 def _knowledge_module():
     loaded = sys.modules.get(_KNOWLEDGE_MODULE_NAME)
     if loaded is not None:
@@ -145,6 +161,22 @@ def _knowledge_module():
         raise RuntimeError("Unable to load the reusable knowledge subsystem.")
     module = importlib.util.module_from_spec(spec)
     sys.modules[_KNOWLEDGE_MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _knowledge_context_module():
+    loaded = sys.modules.get(_KNOWLEDGE_CONTEXT_MODULE_NAME)
+    if loaded is not None:
+        return loaded
+    path = ROOT / "knowledge_system" / "context.py"
+    if not path.exists():
+        raise FileNotFoundError("Reusable knowledge context builder is missing from fdd-data-preparation.")
+    spec = importlib.util.spec_from_file_location(_KNOWLEDGE_CONTEXT_MODULE_NAME, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load the reusable knowledge context builder.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[_KNOWLEDGE_CONTEXT_MODULE_NAME] = module
     spec.loader.exec_module(module)
     return module
 
