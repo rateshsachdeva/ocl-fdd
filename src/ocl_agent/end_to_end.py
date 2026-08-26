@@ -24,7 +24,7 @@ from ocl_agent.part2_analysis.ai_interpretation import (
     write_analysis_request,
 )
 from ocl_agent.part2_analysis.ai_render import apply_partner_interpretation
-from ocl_agent.part2_analysis.run import run_analysis
+from ocl_agent.part2_analysis.pipeline import run_analysis
 from ocl_agent.part4_report.run import run_report
 from ocl_agent.workbook_style import apply_workbook_style
 
@@ -106,7 +106,16 @@ def run_end_to_end(
         )
 
     # Python calculates all metrics and writes the formula-linked analysis layer.
-    analysis = run_analysis(part1.build.records, part1.databook, package=part1.package, handoff=part1.handoff)
+    # Explicit movement records are passed through only when Part 1 validated
+    # their source roles/sign rules; missing movement evidence degrades to
+    # UNSUPPORTED analysis rather than being inferred from balances.
+    analysis = run_analysis(
+        part1.build.records,
+        part1.databook,
+        package=part1.package,
+        handoff=part1.handoff,
+        movements=part1.movement_build.records if part1.movement_build else (),
+    )
 
     # The active coding AI now performs the qualitative FDD-partner interpretation
     # from a hash-bound evidence package. It writes Deal Issues, Key Findings and
