@@ -11,7 +11,8 @@ put raw files in references/source/
         ↓
 python run_all.py
         ↓
-output/OCL_Databook.xlsx
+output/OCL_Databook_vN.xlsx
+output/OCL_Report_vN.pptx
 ```
 
 ## Architecture
@@ -21,14 +22,13 @@ RAW CLIENT EXCEL
         ↓
 FULL fdd-data-preparation
         ├─ deterministic discovery + structural profiling
-        ├─ AI-host Dataset Understanding
         ├─ AI-host Dataset Map + Processing Plan
         ├─ deterministic validation + execution
         └─ completeness + metadata + row/field lineage
         ↓
 PUBLISHED STANDARDIZED LONG / FLAT DATA
         ↓
-OCL semantic handoff
+OCL canonical semantic carry-forward / exception semantic review
         ↓
 reviewable scope + mapping/hierarchy + WC/debt + normality
         ↓
@@ -36,15 +36,15 @@ hard controls
         ↓
 Part 1 — dynamic formula-driven databook
         ↓
-Part 2 — deterministic evidence analysis
+Part 2 — deterministic evidence-aware analysis
         ↓
-Part 3 — evidence-driven management questions
+AI-host FDD-partner interpretation
+        ↓
+Deal Issues + Key Findings + Management Q&A
         ↓
 final workbook styling + deterministic QA
         ↓
-output/OCL_Databook.xlsx
-        ↓
-Part 4 — secondary OCL_Report.pptx
+versioned OCL_Databook_vN.xlsx + OCL_Report_vN.pptx
 ```
 
 `run_all.py` is the public launcher.
@@ -70,6 +70,8 @@ The data-preparation AI layer is **provider-neutral, not absent**. Codex, Claude
 
 When the upstream Python state machine requires reasoning, it returns a coordination object identifying `next_actor`, `next_action`, `relevant_instruction`, `handoff_path` and required artifacts. A coding-agent host must follow `AGENTS.md`, create those artifacts and rerun until publication or a genuine human checkpoint.
 
+During `UNDERSTAND_AND_PLAN`, source-present supporting FDD datasets must not be discarded merely because they are not the core annual OCL listing. Where evidence supports their role, preserve monthly P&L/expense, detailed accrual schedules, movement/reversal/settlement data, revenue/payroll context, account mapping and similar supporting datasets in the Dataset Map / Processing Plan.
+
 **Do not add client-specific Excel heading aliases, worksheet-name parsers or raw-source interpretation to `ocl_agent`.** A changed client format should normally produce a different Dataset Map / Processing Plan, not new OCL parsing code.
 
 `ocl_agent` starts only from a publishable standardized package.
@@ -94,7 +96,7 @@ OCL owns accounting/FDD meaning after data preparation:
 - normality: `normal`, `one_off`;
 - line-item notes and optional context.
 
-Existing reviewed human config is authoritative. AI can interpret evidence and prepare proposals, but it must not silently overwrite reviewed decisions.
+Existing reviewed human config is authoritative. AI can interpret evidence and prepare proposals, but it must not silently overwrite reviewed decisions or mark an unsupported judgment reviewed merely to complete a run.
 
 ### Dynamic workbook
 
@@ -108,6 +110,7 @@ Core transparency concepts remain mandatory where relevant:
 - `Mapping`;
 - `UNMAPPED`;
 - `SCOPE_EXCLUDED`;
+- `Analysis Coverage` in a full Part 2 run;
 - protected standardized `SRC_*` tabs / source evidence.
 
 Children appear before parent subtotals. Parent rows and Total OCL are formula-driven. If a genuine residual exists within a category, it must remain explicit (for example `Unallocated within category`) rather than being hidden in a plug.
@@ -146,13 +149,13 @@ AI-host checkpoints are internal continuation points. Genuine user-decision stat
 
 ### `AWAITING_SEMANTIC_HANDOFF`
 
-The standardized package exists, but OCL dataset usages / field roles are not yet confirmed. Python writes the review/draft artifacts. The AI host interprets only the published standardized package and writes package-specific `semantic_handoff.json`.
+The standardized package exists, but OCL dataset usages / field roles are not yet confirmed. Python writes the review/draft artifacts. This is an exception path when canonical semantic carry-forward is not available. The AI host interprets only the published standardized package and writes package-specific `semantic_handoff.json`.
 
 It must not go back to raw Excel and duplicate upstream source parsing.
 
 ### `AWAITING_JUDGMENT_REVIEW`
 
-Scope, category/hierarchy, WC/debt-like or normality judgments require reviewed decisions. Review context remains visible and human-owned decisions win.
+Scope, category/hierarchy, WC/debt-like or normality judgments require reviewed decisions. This is an intentional `HUMAN` checkpoint for new/unreviewed source labels. Review context remains visible and human-owned decisions win.
 
 ### `AWAITING_CONTROL_ALIGNMENT`
 
@@ -160,7 +163,7 @@ One or more hard controls require explicit source-backed alignment or contain a 
 
 ### `DATABOOK_READY`
 
-Part 1 creates `output/OCL_Databook.xlsx` and downstream Parts 2–4 use the same reconciled OCL model.
+Part 1 creates the working `output/OCL_Databook.xlsx` and downstream analysis/reporting use the same reconciled OCL model. A completed launcher run publishes versioned snapshots.
 
 ## Standardized-package semantic handoff
 
@@ -172,45 +175,100 @@ Dataset usages are:
 - `TB_CONTROL`
 - `REVENUE_CONTEXT`
 - `PAYROLL_CONTEXT`
+- `EXPENSE_CONTEXT`
 - `IGNORE`
 
 For OCL/monthly records, required roles are `source_record_id`, `period`, `amount`, `source_label`. Optional roles include `source_code`, `entity`, `currency` and available dimensions.
 
 Movement records additionally require `movement_type`, with explicit source-value rules mapped to `OPENING`, `FLOW` or `CLOSING` and explicit multipliers. Period alignments are package-specific.
 
+Context datasets require explicit `period` and `amount` roles. `EXPENSE_CONTEXT` is only for a genuinely relevant source-backed P&L/expense measure; do not substitute an unrelated denominator.
+
 Do not infer field meaning from a heading alone; use the upstream Dataset Map, metadata, samples, lineage and contextual evidence.
 
-## Part 2 — analysis
+## Part 2 — evidence-aware analysis
 
-Part 2 calculates only from the reconciled Part 1 model. Supported evidence may include:
+Part 2 calculates only from the reconciled Part 1 model and explicitly reports whether each analysis is supported by the evidence actually supplied.
 
-- annual OCL movements;
-- category movements;
+### Balance-history analysis
+
+Where monthly/annual balances support it, Python calculates:
+
+- annual OCL and category movements;
 - concentration;
-- monthly variability / seasonality;
-- new balances;
-- balances falling to nil;
-- stale balances;
-- movement / reversal / utilisation patterns where supported;
-- reviewed debt-like and one-off classifications;
-- optional OCL-to-revenue/payroll context ratios.
+- monthly variability / volatility;
+- seasonality;
+- year-end build / unwind versus the prior three-month run-rate;
+- new balances and balances falling to nil;
+- stale-balance proxy from unchanged monthly history;
+- 12-month balance persistence / recurrence proxy;
+- 12-month average and median normalization reference.
 
-Do not fabricate business explanations. Deterministic code establishes the numeric observation; AI may improve wording without changing the evidence.
+The recurrence output is a **balance-pattern proxy**, not proof of economic recurrence. The normalization output is a **reference**, not an automatic normalized-working-capital adjustment.
 
-## Part 3 — management questions
+### Movement analysis
+
+Only when validated explicit movement records exist, Python may calculate:
+
+- additions / releases;
+- utilisation/release ratios;
+- explicit reversal patterns;
+- movement-linked roll-forward observations.
+
+Do not infer utilisation or reversals from balance changes when explicit movement evidence is absent.
+
+### Context ratios
+
+Only when explicit context datasets are semantically bound, Python may calculate:
+
+- OCL / revenue;
+- OCL / payroll;
+- OCL / expense.
+
+An accrual-to-expense ratio is therefore supported only when a relevant expense/P&L denominator is explicitly present and bound. Do not create a proxy denominator from unrelated data.
+
+### Reviewed-judgment analysis
+
+Python also analyses reviewed:
+
+- debt-like treatment;
+- management-versus-FDD debt-like gaps;
+- normal / one-off classification.
+
+### Analysis Coverage — hard evidence boundary
+
+The full databook includes `Analysis Coverage` with statuses such as `SUPPORTED`, `PARTIAL`, `REFERENCE_ONLY` and `UNSUPPORTED`.
+
+The skill must never pretend an analysis is supported because the output would otherwise look incomplete.
+
+In particular:
+
+- unchanged monthly history may support a stale-balance proxy, but not true obligation aging;
+- adequacy requires obligation/expense/settlement evidence beyond aggregate balance history;
+- missing-accrual completeness requires completeness evidence such as subsequent payments, contracts, vendor/payroll or P&L support;
+- double counting requires sufficiently detailed obligation/vendor/payroll/invoice-level evidence.
+
+Until those richer evidence contracts are explicitly implemented and supplied, adequacy, missing-accrual and double-counting analysis must remain `UNSUPPORTED`, not inferred.
+
+Deterministic code establishes numeric observations. AI interprets the validated evidence without changing calculations or elevating unsupported coverage into a conclusion.
+
+## FDD-partner analysis and management questions
+
+After Python creates the analytical evidence pack, the AI host writes Deal Issues, Key Findings and Management Q&A from that evidence only.
 
 Questions arise only from actual evidence/findings. Do not ask questions for the sake of filling a sheet.
 
 - Ask one focused operational/evidential point per question.
 - New item: ask what event or calculation gave rise to it.
 - Cliff to nil: ask how it was settled/released.
-- Stale balance: ask whether the obligation remains valid and outstanding.
+- Stale-balance proxy: ask whether the obligation remains valid and outstanding, while acknowledging the evidence limitation.
 - Movement/spike: ask for the primary underlying driver.
 - Concentration: request composition and settlement timing where useful.
 - Do not ask management to decide whether something is debt-like, one-off or a purchase-price adjustment.
 - Do not routinely demand invoices or roll-forwards unless the evidence requires them.
+- Never claim an `UNSUPPORTED` analysis was performed.
 
-Questions are embedded in `OCL_Databook.xlsx`.
+Questions are embedded in the databook and use the same hash-bound Python evidence package as Deal Issues / Key Findings.
 
 ## Workbook presentation contract
 
@@ -238,6 +296,7 @@ After analysis/questions and styling, the workbook is reopened and independently
 - required `Source_Record_ID`, amount, scope and review fields;
 - blocking Python controls;
 - broken `#REF!` formulas;
+- substantive narrative sections in a full analysis run;
 - successful reopen.
 
 ## Completion rule
@@ -251,6 +310,8 @@ The workflow is complete only when:
 5. required judgments are reviewed;
 6. applicable hard controls pass and unsupported controls are explicit `NOT_APPLICABLE`;
 7. the databook reopens cleanly and passes final QA;
-8. analysis and management questions use the same reconciled model;
-9. `output/OCL_Databook.xlsx` is produced in the required FDD format and quality;
-10. the secondary report is produced unless explicitly skipped.
+8. analysis coverage accurately reflects the supplied evidence;
+9. Deal Issues, Key Findings and management questions use the same reconciled evidence pack;
+10. matching versioned Excel and PowerPoint outputs are produced unless the report is explicitly skipped.
+
+For transfer to another user, see `HANDOFF_TO_NEW_USER.md`.

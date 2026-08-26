@@ -20,7 +20,7 @@ The full `fdd-data-preparation` workflow has already handled raw Excel structure
 The AI host may interpret:
 
 - which published logical dataset(s) contain OCL/current-liability records;
-- which dataset(s) are monthly, movements, TB/control, revenue or payroll context;
+- which dataset(s) are monthly, movements, TB/control, revenue, payroll or explicit expense context;
 - semantic field roles within those published datasets;
 - OCL scope meaning;
 - source-present category/hierarchy proposals;
@@ -37,6 +37,10 @@ The AI host may interpret:
 - roll-forward math;
 - monthly/annual tie checks;
 - materiality metrics;
+- seasonality, volatility and year-end run-rate calculations;
+- recurrence/persistence and normalization reference calculations;
+- movement-based utilisation/release/reversal analysis where explicit movements exist;
+- context ratios where the semantic handoff explicitly binds the relevant context;
 - final workbook/PPT rendering and QA.
 
 ## Coordination rule
@@ -69,6 +73,7 @@ Allowed dataset usages are:
 - `TB_CONTROL`
 - `REVENUE_CONTEXT`
 - `PAYROLL_CONTEXT`
+- `EXPENSE_CONTEXT`
 - `IGNORE`
 
 For OCL/monthly records bind, using actual published fields:
@@ -81,6 +86,8 @@ For OCL/monthly records bind, using actual published fields:
 Optional roles include `source_code`, `entity`, `currency` and relevant dimensions.
 
 Movement records also require `movement_type`. Use exact source movement values and explicit roles/multipliers. Do not infer a sign convention from a word when source evidence contradicts it.
+
+Context datasets require explicit `period` and `amount` bindings. `EXPENSE_CONTEXT` should be used only when the published dataset is genuinely a relevant P&L/expense measure; do not repurpose revenue, payroll or a generic numeric column as an expense denominator.
 
 Bind TB/scope controls only to exact published datasets/fields/filters that the evidence supports. Do not keyword-search for a convenient total and call it a control.
 
@@ -98,6 +105,20 @@ Scope, category/hierarchy, WC/debt-like and normality are reviewable financial-d
 - If a genuine residual within a parent cannot be assigned to a supported child, surface it explicitly rather than using a hidden plug.
 
 A `HUMAN` checkpoint is intentional where reviewed judgment is required.
+
+## Evidence-aware analysis coverage
+
+The workbook contains an `Analysis Coverage` view so the deal team can distinguish what the supplied evidence genuinely supports.
+
+Examples:
+
+- monthly balances can support seasonality, volatility, year-end build/unwind and balance-persistence / normalization-reference analysis;
+- explicit movement data can support utilisation/release and reversal-pattern analysis;
+- explicit expense context can support accrual-to-expense ratios;
+- unchanged monthly balances can support only a stale-balance **proxy**, not true obligation aging;
+- adequacy, missing-accrual and double-counting conclusions require richer obligation/completeness evidence and must remain unsupported when that evidence is absent.
+
+Never promote a `PARTIAL`, `REFERENCE_ONLY` or `UNSUPPORTED` analysis into a definitive conclusion merely because the user expects a complete workbook.
 
 ## Deal Issues, Key Findings and Q&A
 
@@ -121,5 +142,6 @@ Do not:
 - add client-specific heading aliases to OCL production code;
 - invent source amounts, categories or balancing figures;
 - calculate financial outputs in the AI prompt and hard-code them into Excel;
+- claim an unsupported adequacy/completeness/aging test was performed;
 - bypass a failed control;
 - overwrite reviewed human config.

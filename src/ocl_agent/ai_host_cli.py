@@ -186,6 +186,7 @@ Rules:
 - Do NOT edit production code, tests, source workbooks, or raw files in references/source.
 - Do NOT invent or recalculate financial amounts when Python owns the calculation.
 - Preserve reviewed human judgments.
+- When the action is UNDERSTAND_AND_PLAN, preserve source-present supporting FDD datasets when evidence shows they may support OCL analysis, including monthly P&L/expense data, detailed accrued-liability schedules, movement/reversal/settlement or subsequent-payment data, payroll/revenue context and account mapping. Preserve useful evidence fields such as dates, vendor/counterparty, document or obligation identifiers, descriptions, movement type, settlement/payment date, expected amount and related expense category when they exist. Do not discard supporting data merely because it is not the core annual OCL listing; describe its role in the Dataset Map / Processing Plan from the supplied evidence.
 - If the referenced instruction offers optional targeted inspection, use the already-prepared profile/samples/evidence first. If that evidence is genuinely insufficient, write the required unresolved/blocking question artifact rather than trying to execute code yourself.
 - If this is the FDD analysis checkpoint, think and write as an experienced FDD partner and follow FDD_PARTNER_ANALYSIS.md exactly.
 - Do not stop to ask the user unless the referenced instruction explicitly says a genuine human judgment is required. This call is only for AI_HOST work.

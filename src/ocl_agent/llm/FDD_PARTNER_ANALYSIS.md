@@ -6,6 +6,8 @@ Use the active AI host (Codex, Claude Code, GitHub Copilot, or another capable c
 
 The AI host writes the Deal Issues, Key Findings and Management Q&A. Python remains the sole owner of source values, calculations, reconciliations, classifications and materiality tests.
 
+Also read `src/ocl_agent/part2_analysis/FDD_ANALYSIS_FRAMEWORK.md`. It is the canonical partner-level interpretation framework for this evidence package.
+
 ## Mindset
 
 Think and write as an experienced FDD partner reviewing the OCL workstream for a deal team.
@@ -23,6 +25,45 @@ Do not recalculate financial metrics with AI. If evidence is insufficient, quali
 The Python materiality flags are evidence, not a substitute for professional judgment. Do not manufacture headline issues or questions merely to fill a page. Conversely, a transaction-relevant pattern may be surfaced as a notable observation when the supplied evidence supports it even if it is not a deterministic headline trigger.
 
 If no material deal issue is supported, state that conclusion explicitly rather than leaving the sections blank.
+
+### Analysis coverage is a hard evidence boundary
+
+If `analysis_evidence.json` contains the `analysis_coverage` table, read it before drawing conclusions about the scope of testing.
+
+- `SUPPORTED` means the stated analysis can be interpreted from the evidence provided.
+- `PARTIAL` means the evidence supports only the stated proxy or limited conclusion; do not promote it to a stronger assertion.
+- `REFERENCE_ONLY` means the metric is a benchmark/run-rate reference, not an adjustment or conclusion by itself.
+- `UNSUPPORTED` means the required evidence was not supplied. Do not imply the analysis was performed or conclude there is no issue.
+
+In particular, do not claim adequacy, missing-accrual completeness, double counting or true obligation aging was tested unless the coverage/evidence explicitly supports it. An unchanged-balance stale proxy is not the same as aging. A 12-month average or median is not automatically a normalized working-capital adjustment. Utilisation/reversal conclusions require explicit movement evidence.
+
+## Cross-analysis reasoning
+
+Do not interpret each table in isolation. Where the evidence supports it, combine related indicators into one stronger FDD observation.
+
+Examples of appropriate reasoning:
+
+- year-end build + high monthly volatility + closing balance well above 12M average/median → closing NWC may not be representative; establish whether the pattern is operationally recurring;
+- persistent accumulation + low utilisation/release activity → possible build-up or delayed settlement; do not call it over-accrued without stronger obligation/settlement evidence;
+- year-end build + material explicit reversal/release → potential QoE/NWC relevance; establish whether the release is settlement, estimate true-up or reversal;
+- persistent balance + stale-balance proxy → validity warrants challenge; do not call it aged unless actual dates exist;
+- material mix shift toward a category with a different WC/debt-like profile → the quality/composition of closing OCL may have changed even when total OCL is stable;
+- large concentration + reviewed debt-like classification → potentially heightened equity-value sensitivity and need for settlement evidence;
+- one-off classification + material reversal/release → consider both QoE and normalized-NWC implications.
+
+These combinations are interpretation patterns, not automatic conclusions. Use the exact Python evidence references supporting each point.
+
+## Transaction lenses
+
+For each material or notable point, decide which lens actually matters:
+
+- **Normalized working capital** — representativeness, recurring run-rate, seasonality, accumulation or release;
+- **Net debt / equity value** — reviewed debt-like treatment and settlement profile;
+- **Quality of earnings** — releases, reversals, one-off items or unusual accrual mechanics affecting P&L interpretation;
+- **Completeness / adequacy / validity** — only when evidence is sufficient; otherwise frame the missing evidence as a limitation or targeted question;
+- **Settlement / cash conversion** — utilisation, release and expected settlement behavior.
+
+Do not force every finding into every lens.
 
 ## Management questions
 
@@ -100,6 +141,7 @@ Rules:
 - `linked_finding_id` may be null when an observation is supported by a table rather than a deterministic finding.
 - Every deal issue, key finding and management question must contain at least one valid `evidence_refs` entry.
 - Valid references are listed in `analysis_evidence.json`: `finding:<id>` or `table:<table_key>:<zero-based-row-index>`.
+- Cross-analysis observations should cite all material supporting table/finding references rather than only one convenient metric.
 - Do not place new financial calculations in the JSON.
 
 After writing the artifact, rerun `python run_all.py` and continue automatically when `Workflow coordination` again says `next_actor = AI_HOST` and `must_continue = true`.

@@ -10,13 +10,18 @@ Put the raw client Excel files in:
 references/source/
 ```
 
-Then run:
+Install the Python dependencies and run:
 
 ```bash
+pip install -r requirements.txt
 python run_all.py
 ```
 
-Normal terminal use delegates the two contextual AI reasoning stages to an installed/authenticated GitHub Copilot CLI. If Codex or Claude Code is already running the repository interactively, use `python run_all.py --ai-host external` so that active agent completes the AI checkpoints itself.
+Python 3.11 is recommended.
+
+Normal terminal use delegates the two contextual AI reasoning stages to an installed/authenticated GitHub Copilot CLI. A recipient with GitHub Copilot Enterprise can alternatively open the repo in the VS Code Copilot coding agent and ask it to run the skill end to end; the repository instructions use `python run_all.py --ai-host external` for that interactive-agent route.
+
+For the plain-terminal route, the recipient's organization/enterprise must allow Copilot CLI and the CLI must be installed/authenticated. A Copilot Enterprise seat by itself does not bypass an organization policy that disables the CLI. See `HANDOFF_TO_NEW_USER.md` for the recipient checklist.
 
 The normal successful workflow is intentionally simple:
 
@@ -32,7 +37,7 @@ Python validation + deterministic reshape + completeness + lineage
         ↓
 canonical standardized datasets
         ↓
-Python OCL scope/model/controls/databook + analytical tables
+Python OCL scope/model/controls/databook + evidence-aware analytical tables
         ↓
 AI #2: FDD-partner Deal Issues + Key Findings + Q&A
         ↓
@@ -43,6 +48,8 @@ output/OCL_Report_vN.pptx
 ```
 
 The raw source workbooks are read-only and are not committed to Git. The Excel databook is the principal deliverable.
+
+A first run on a new source may intentionally stop at `HUMAN / REVIEW_OCL_JUDGMENTS` for scope, category/hierarchy, WC/debt-like or normal/one-off review. That is a governance checkpoint, not a broken run. Reviewed human judgment remains authoritative.
 
 ## The important architectural boundary
 
@@ -56,12 +63,31 @@ Python itself does not call an LLM API and AI does not calculate financial amoun
 
 For a normal canonical run there are two reasoning passes:
 
-1. **UNDERSTAND_AND_PLAN** — AI reads deterministic profile/knowledge evidence and writes the Dataset Map / Processing Plan.
+1. **UNDERSTAND_AND_PLAN** — AI reads deterministic profile/knowledge evidence and writes the Dataset Map / Processing Plan, preserving source-present supporting FDD datasets when they are relevant.
 2. **WRITE_FDD_PARTNER_ANALYSIS** — after Python has calculated and reconciled the analytical tables, AI writes evidence-backed Deal Issues, Key Findings and Management Q&A.
 
 Intermediate semantic confirmation is deterministic when the standardized publication follows the canonical contract. Control investigation or semantic review remains an exception path only when evidence genuinely requires it.
 
 The automatic GitHub Copilot child checkpoint is deliberately narrow: it may read referenced evidence and write required workflow artifacts, but it does not execute Python/shell commands, modify code, or browse the repository broadly. Python remains the parent workflow executor.
+
+## Evidence-aware analysis
+
+The databook includes an `Analysis Coverage` view so a reviewer can see what the supplied evidence genuinely supports.
+
+Depending on the source package, Python can calculate:
+
+- annual/category movements and concentration;
+- monthly volatility and seasonality;
+- year-end build/unwind versus the prior three-month run-rate;
+- a 12-month balance-persistence / recurrence proxy;
+- 12-month average/median normalization references (reference only, not an automatic adjustment);
+- stale-balance, new-balance and cliff-to-zero diagnostics;
+- debt-like, management-vs-FDD debt-like gap and one-off analysis from reviewed judgments;
+- utilisation/release and explicit reversal analysis when validated movement data exists;
+- OCL-to-expense ratios only when explicit expense/P&L context is bound;
+- revenue/payroll context ratios when those datasets exist.
+
+The workflow does **not** infer unsupported work. True adequacy testing, missing-accrual completeness, double counting and true obligation aging require richer supporting evidence such as subsequent payments, invoice/vendor detail, contracts, payroll/bonus schedules or other obligation-level support. When that evidence is absent, the coverage view marks the analysis unsupported/partial rather than manufacturing a conclusion.
 
 ## Design principles
 
@@ -83,4 +109,4 @@ For compatibility/testing, an already published upstream package can still be su
 python run_all.py --data-prep-output <path-to-output/latest>
 ```
 
-See `SKILL.md`, `AGENTS.md` and `_how_it_works.md` for the detailed operating contract.
+See `SKILL.md`, `AGENTS.md`, `HANDOFF_TO_NEW_USER.md` and `_how_it_works.md` for the detailed operating contract.
