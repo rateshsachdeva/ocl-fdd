@@ -24,6 +24,7 @@ if str(SRC) not in sys.path:
 
 from ocl_agent.ai_host_cli import run_ai_host
 from ocl_agent.config import ensure_runtime_folders
+from ocl_agent.databook_display import apply_databook_display_preferences
 from ocl_agent.end_to_end import run_end_to_end
 from ocl_agent.final_qa import FinalQAError
 from ocl_agent.output_versioning import publish_versioned_deliverables
@@ -150,13 +151,15 @@ def main() -> int:
         published = None
         if result.databook and result.state in {"READY", "DATABOOK_READY"}:
             try:
+                handoff = result.part1.handoff if result.part1 is not None else None
+                apply_databook_display_preferences(result.databook, handoff)
                 published = publish_versioned_deliverables(
                     result.databook,
                     result.report,
                     paths.output,
                 )
             except OSError as error:
-                print(f"OCL stopped safely: completed outputs could not be versioned: {error}")
+                print(f"OCL stopped safely: completed outputs could not be finalized/versioned: {error}")
                 return finish(2)
             print(f"Published deliverable version: v{published.version}")
 

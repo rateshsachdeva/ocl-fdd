@@ -7,7 +7,7 @@ This guide controls **workbook layout and presentation only**. It must never cre
 - The workbook is generated in code with `openpyxl`; there is no external workbook template.
 - Remove the default workbook sheet.
 - Build foundation tabs before analysis tabs so formulas reference stable ranges.
-- Hide gridlines on all sheets.
+- Hide gridlines on all sheets, including Excel View gridlines and printed gridlines.
 - Force full recalculation on open.
 - Save the principal Excel output as `OCL_Databook.xlsx`.
 - Financial totals must be formulas, not typed results.
@@ -56,9 +56,9 @@ Then foundation and support tabs:
 
 Font meaning:
 
-- Green = link to another worksheet / source-linked formula.
-- Black = normal model formula or standard text.
-- Blue = hardcoded/source-style value.
+- Black = all displayed financial/model numbers, linked formulas, normal model formulas and standard text.
+- Blue = hardcoded/source-style value on protected source/support tabs where source-input convention is useful.
+- Green is not used for displayed financial numbers merely because a formula links to another worksheet.
 - Grey italic/note text = notes, helper text, source references and hidden check explanations.
 - Bold = headings, subtotals, totals, opening balances and key calculated figures.
 
@@ -68,6 +68,8 @@ Font meaning:
 - Percentages: one decimal place where used.
 - Multiples: `0.0x`.
 - Source values, model amounts, checks, balances, bridge values and finding figures use the financial amount format unless their meaning is percentage/multiple.
+- Visible annual and monthly period headings use Excel date format `dd-mmm-yy` (for example `31-Dec-25`) whenever the exact/source-backed period-end date can be determined.
+- Do not invent an annual period-end date merely to force a date display. If an exact date cannot be determined from the standardized period or confirmed annual-to-monthly alignment, retain the source period label.
 
 ## Standard analysis-sheet layout
 
@@ -95,7 +97,7 @@ For analytical review tabs:
 - Data starts row 3.
 - Freeze at `A3`.
 - Amounts are formula links back to source-copy tabs where source-cell linkage is available.
-- Source-linked amount formulas use green font and financial number format.
+- Source-linked amount formulas use black font and the financial number format in the finished databook.
 
 ### Source tabs
 
@@ -109,11 +111,13 @@ For analytical review tabs:
 - Use standard analysis layout.
 - Category labels in column B.
 - Period columns follow dynamically from available data; do not force fixed FY labels.
+- Where exact/source-backed period ends are known, annual and monthly period headings display as `dd-mmm-yy`.
 - Child/category rows are indented.
-- Parent/family subtotal rows are bold with a top border.
-- Grand totals are bold with grand-total fill and strong borders.
+- Parent/family subtotal rows are bold with a top border when they add useful information.
+- Do not show a parent subtotal when it is purely duplicative, including a one-child subtotal or the sole parent subtotal that would equal `Total OCL`.
+- `Total OCL` remains the final visible total row and is bold with light-grey `#E5E5E5` fill and strong borders.
 - `UNMAPPED` remains separately visible; never hide it inside mapped subtotals.
-- Numeric columns align right.
+- Numeric columns align right and display in black font.
 
 ## Roll-forward
 
@@ -163,7 +167,7 @@ For analytical review tabs:
 
 - Standard analysis layout.
 - Visible columns include ID, area/theme, metric, periods/item, movement/figure, magnitude, so-what, evidence, materiality and management ask.
-- Formula-backed amount columns use financial format.
+- Formula-backed amount columns use financial format and black font.
 - Long narrative fields wrap.
 - Findings remain evidence-led; no speculative explanation may be presented as fact.
 
