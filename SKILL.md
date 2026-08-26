@@ -22,7 +22,7 @@ RAW CLIENT EXCEL
         ↓
 FULL fdd-data-preparation
         ├─ deterministic discovery + structural profiling
-        ├─ AI-host Dataset Understanding + Processing Plan
+        ├─ AI-host Dataset Map + Processing Plan
         ├─ deterministic validation + execution
         └─ completeness + metadata + row/field lineage
         ↓
