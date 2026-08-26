@@ -16,7 +16,7 @@ def embed_extended_analysis(path: Path, result: AnalysisResult) -> None:
     workbook = load_workbook(path)
     _write_coverage_sheet(workbook, _table(result, "analysis_coverage"))
     _append_formula_linked_run_rate(workbook)
-    _write_context_sheet(workbook, result)
+    _write_additional_analysis(workbook, result)
     workbook.save(path)
 
 
@@ -101,8 +101,15 @@ def _append_formula_linked_run_rate(workbook) -> None:
         target_row += 1
 
 
-def _write_context_sheet(workbook, result: AnalysisResult) -> None:
-    tables = [table for table in result.tables if table.key in {"context_ratios", "accrual_to_expense", "movement_patterns"}]
+def _write_additional_analysis(workbook, result: AnalysisResult) -> None:
+    visible_keys = {
+        "mix_shift",
+        "persistent_accumulation",
+        "movement_patterns",
+        "accrual_to_expense",
+        "context_ratios",
+    }
+    tables = [table for table in result.tables if table.key in visible_keys]
     if "Additional Analysis" in workbook.sheetnames:
         del workbook["Additional Analysis"]
     if not tables:
@@ -110,6 +117,7 @@ def _write_context_sheet(workbook, result: AnalysisResult) -> None:
     sheet = workbook.create_sheet("Additional Analysis")
     sheet["A1"] = PROJECT_LABEL
     sheet["A2"] = "Additional Analysis"
+    sheet["B4"] = "Deterministic supporting analyses used by the FDD partner interpretation"
     row = 6
     for table in tables:
         sheet.cell(row, 2, table.title)
