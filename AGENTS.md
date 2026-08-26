@@ -35,6 +35,28 @@ Therefore a normal successful new-source run should require only two substantive
 
 Additional AI or human checkpoints are exception paths only when genuine ambiguity, missing canonical semantics, judgment review, or a control break requires them.
 
+## Fast-start dataset understanding
+
+For `UNDERSTAND_AND_PLAN`, the coordination payload may include:
+
+```text
+builtin_knowledge: fdd-data-preparation/knowledge_system/BUILTIN_FDD_SOURCE_KNOWLEDGE.md
+fast_start_mode: true
+```
+
+When present, the AI host must read the deterministic profile/samples, reusable knowledge evidence and the referenced built-in knowledge **before** considering deeper inspection.
+
+Treat built-in and reusable knowledge as low-priority hypotheses, never as truth. Current source evidence is authoritative.
+
+When `fast_start_mode=true`:
+
+- recognize already-evidenced workbook/layout patterns instead of rediscovering them through broad file inspection;
+- complete the Dataset Map + Processing Plan from prepared evidence wherever reasonably possible;
+- use targeted inspection only for a specific unresolved ambiguity that could materially change dataset grain, field meaning, source role, join keys or downstream processing;
+- do not inspect every month/file independently when deterministic evidence establishes a common schema;
+- preserve useful supporting datasets and join keys without deeply analysing them during the planning checkpoint;
+- never use benchmark expected results, golden answers or prior-client conclusions as current-source conclusions.
+
 ## AI host continuation
 
 ### Normal PowerShell / terminal use
@@ -66,10 +88,11 @@ When the workflow returns:
 the current agent must:
 
 1. read `relevant_instruction` and `handoff_path` plus referenced evidence;
-2. create/update exactly the required artifact(s);
-3. never invent source values or replace deterministic Python calculations with AI arithmetic;
-4. rerun `python run_all.py --ai-host external`;
-5. continue until `READY`, `FAILED`, or a genuine `HUMAN` checkpoint.
+2. if coordination contains `builtin_knowledge`, read it too and honor `fast_start_mode` as described above;
+3. create/update exactly the required artifact(s);
+4. never invent source values or replace deterministic Python calculations with AI arithmetic;
+5. rerun `python run_all.py --ai-host external`;
+6. continue until `READY`, `FAILED`, or a genuine `HUMAN` checkpoint.
 
 When the user says **“run the skill”** in Codex or Claude Code, run it end to end in external mode rather than stopping at internal AI checkpoints.
 
