@@ -68,7 +68,7 @@ Font meaning:
 - Percentages: one decimal place where used.
 - Multiples: `0.0x`.
 - Source values, model amounts, checks, balances, bridge values and finding figures use the financial amount format unless their meaning is percentage/multiple.
-- Visible annual and monthly period headings use Excel date format `dd-mmm-yy` (for example `31-Dec-25`) whenever the exact/source-backed period-end date can be determined.
+- Visible annual and monthly period headings use Excel date format `mmmyy` (for example `Dec24`) whenever the exact/source-backed period-end date can be determined.
 - Do not invent an annual period-end date merely to force a date display. If an exact date cannot be determined from the standardized period or confirmed annual-to-monthly alignment, retain the source period label.
 
 ## Standard analysis-sheet layout
@@ -111,7 +111,7 @@ For analytical review tabs:
 - Use standard analysis layout.
 - Category labels in column B.
 - Period columns follow dynamically from available data; do not force fixed FY labels.
-- Where exact/source-backed period ends are known, annual and monthly period headings display as `dd-mmm-yy`.
+- Where exact/source-backed period ends are known, annual and monthly period headings display as `mmmyy` (for example `Dec24`).
 - Child/category rows are indented.
 - Parent/family subtotal rows are bold with a top border when they add useful information.
 - Do not show a parent subtotal when it is purely duplicative, including a one-child subtotal or the sole parent subtotal that would equal `Total OCL`.
@@ -153,7 +153,9 @@ For analytical review tabs:
 - One chart per category.
 - Bars: KPMG blue `#00338D`.
 - LTM line: amber `#FFC000`.
-- Hide y-axis, remove major gridlines, position legend at bottom, display blanks as gaps.
+- Show a visible bottom legend with series names `Monthly balance` and `LTM 12M average`.
+- Set bar gap width to `40%`.
+- Hide y-axis, remove major gridlines and display blanks as gaps.
 - Charts sit below the data grids.
 
 ## Deal Issues
