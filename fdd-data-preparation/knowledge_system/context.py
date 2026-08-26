@@ -15,6 +15,7 @@ from typing import Any
 BUILTIN_PATTERNS = Path(__file__).with_name("builtin_patterns.json")
 MAX_PROFILE_BYTES = 2_000_000
 MAX_MATCHED_PATTERNS = 14
+MIN_PATTERN_HITS = 2
 
 
 def build_context_packet(
@@ -72,7 +73,7 @@ def build_context_packet(
     else:
         lines.extend(
             [
-                "No source-specific pattern reached the matching threshold.",
+                "No source-specific pattern reached the corroborating-evidence threshold.",
                 "Apply the core principles and reason from the current profile/samples without guessing.",
                 "",
             ]
@@ -85,8 +86,9 @@ def build_context_packet(
             "1. Start from the deterministic profile/handoff; do not browse the repository broadly.",
             "2. Use the matched patterns above to resolve already-familiar structure quickly.",
             "3. Spend reasoning effort only on genuine ambiguities, changed grains, conflicting field meanings or unsupported relationships.",
-            "4. Preserve supporting datasets that may enable OCL analysis (P&L, payroll, mapping, movements, AP/subsequent payments, contracts/projects).",
-            "5. Produce the required Dataset Map / Processing Plan directly from the prepared evidence; do not run code inside the AI checkpoint.",
+            "4. Do not inspect every month/file independently when deterministic evidence establishes a common schema or conceptual dataset.",
+            "5. Preserve supporting datasets and join keys that may enable OCL analysis (P&L, payroll, mapping, movements, AP/subsequent payments, contracts/projects) without deeply analysing them during planning.",
+            "6. Produce the required Dataset Map / Processing Plan directly from the prepared evidence; do not run code inside the AI checkpoint.",
             "",
         ]
     )
@@ -130,7 +132,7 @@ def _match_patterns(patterns: list[dict[str, Any]], evidence_text: str) -> list[
         if not keywords:
             continue
         hits = sum(1 for keyword in keywords if _normalise(keyword) in evidence_text)
-        if hits:
+        if hits >= MIN_PATTERN_HITS:
             ranked.append((hits, item))
     ranked.sort(key=lambda pair: (-pair[0], str(pair[1].get("id", ""))))
     return ranked[:MAX_MATCHED_PATTERNS]
