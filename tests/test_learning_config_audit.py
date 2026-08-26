@@ -79,10 +79,16 @@ def test_root_config_is_seed_only_and_package_config_is_stable(tmp_path: Path):
     assert (package_config / "mapping.csv").read_text(encoding="utf-8") == "source_label,category\nBonus,Reviewed Package Decision\n"
 
 
-def test_column_memory_is_not_currently_consumed_by_ocl_python():
+def test_legacy_config_placeholders_are_not_currently_consumed_by_ocl_python():
     repo_root = Path(__file__).resolve().parents[1]
     text = "\n".join(
         path.read_text(encoding="utf-8", errors="replace")
         for path in (repo_root / "src" / "ocl_agent").rglob("*.py")
     )
-    assert "column_memory.json" not in text
+    for filename in (
+        "column_memory.json",
+        "line_item_notes.csv",
+        "optional_payroll.csv",
+        "optional_revenue.csv",
+    ):
+        assert filename not in text, f"{filename} is an active OCL runtime dependency and should not be treated as legacy"
