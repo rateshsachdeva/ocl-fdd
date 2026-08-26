@@ -1,7 +1,8 @@
 """Optional contextual datasets for Part 2.
 
-Revenue/payroll context is used only when the semantic handoff explicitly binds
-period and amount fields. Missing context never blocks the OCL workflow.
+Revenue, payroll and expense context is used only when the semantic handoff
+explicitly binds period and amount fields. Missing context never blocks the OCL
+workflow and is surfaced as unsupported analysis rather than guessed.
 """
 from __future__ import annotations
 
@@ -16,7 +17,11 @@ from ocl_agent.schemas import AnalysisResult, AnalysisTable, OCLRecord, Scope
 
 def load_context(package: StandardizedPackage, handoff: SemanticHandoff) -> dict[str, dict[str, Decimal]]:
     result: dict[str, dict[str, Decimal]] = {}
-    usage_keys = {DatasetUsage.REVENUE_CONTEXT: "revenue", DatasetUsage.PAYROLL_CONTEXT: "payroll"}
+    usage_keys = {
+        DatasetUsage.REVENUE_CONTEXT: "revenue",
+        DatasetUsage.PAYROLL_CONTEXT: "payroll",
+        DatasetUsage.EXPENSE_CONTEXT: "expense",
+    }
     for binding in handoff.datasets:
         matched = [usage for usage in usage_keys if usage in binding.usages]
         if not matched or not binding.fields.period or not binding.fields.amount:
@@ -51,13 +56,15 @@ def enrich_with_context(analysis: AnalysisResult, records: Iterable[OCLRecord], 
         ocl = totals.get(period, Decimal("0"))
         revenue = context.get("revenue", {}).get(period)
         payroll = context.get("payroll", {}).get(period)
+        expense = context.get("expense", {}).get(period)
         revenue_pct = None if revenue in {None, Decimal("0")} else float((ocl / abs(revenue)) * Decimal("100"))
         payroll_pct = None if payroll in {None, Decimal("0")} else float((ocl / abs(payroll)) * Decimal("100"))
-        rows.append((period, ocl, revenue, revenue_pct, payroll, payroll_pct))
+        expense_pct = None if expense in {None, Decimal("0")} else float((ocl / abs(expense)) * Decimal("100"))
+        rows.append((period, ocl, revenue, revenue_pct, payroll, payroll_pct, expense, expense_pct))
     table = AnalysisTable(
         "context_ratios",
         "OCL context ratios",
-        ("Period", "OCL", "Revenue", "OCL / Revenue %", "Payroll", "OCL / Payroll %"),
+        ("Period", "OCL", "Revenue", "OCL / Revenue %", "Payroll", "OCL / Payroll %", "Expense Context", "OCL / Expense %"),
         tuple(rows),
     )
     return AnalysisResult(analysis.findings, (*analysis.tables, table), analysis.annual_periods, analysis.monthly_periods, analysis.latest_annual_period)
