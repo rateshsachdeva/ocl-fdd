@@ -62,12 +62,25 @@ class DataPrepBridgeResult:
 
 
 def source_package_fingerprint(source_dir: Path) -> str:
+    """Fingerprint the exact current source package by relative path and bytes.
+
+    The outer OCL workflow uses this fingerprint before the embedded data-prep
+    runtime is allowed to inspect any previous run state. Therefore adding,
+    removing, renaming or changing a source file creates a distinct upstream
+    workspace even if the embedded runtime itself would otherwise resume an old
+    run. Office lock files are ignored because they are not client source data.
+    """
     source_dir = Path(source_dir).resolve()
     digest = hashlib.sha256()
     files = sorted(
-        (path for path in source_dir.rglob("*") if path.is_file() and not path.name.startswith("~$")),
+        (
+            path
+            for path in source_dir.rglob("*")
+            if path.is_file() and not path.name.startswith("~$")
+        ),
         key=lambda path: path.relative_to(source_dir).as_posix().casefold(),
     ) if source_dir.exists() else []
+
     digest.update(f"files:{len(files)}\n".encode("utf-8"))
     for path in files:
         relative = path.relative_to(source_dir).as_posix()
@@ -83,6 +96,16 @@ def source_package_fingerprint(source_dir: Path) -> str:
 
 
 def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path) -> DataPrepBridgeResult:
+    """Advance the full data-preparation workflow by one deterministic/AI-host turn.
+
+    Each distinct set of files in ``references/source`` receives its own
+    ``source_packages/<fingerprint>/`` runs and output directories. This outer
+    isolation is deliberately stronger than relying only on an upstream run ID:
+    old workflow state is never visible to a newly changed source package.
+
+    Within that source-specific workspace, ``output/latest`` is reusable only
+    when its execution ID matches the current upstream execution.
+    """
     repo_root = Path(repo_root).resolve()
     source_dir = Path(source_dir).resolve()
     work_root = Path(work_root).resolve()
@@ -96,7 +119,12 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
 
     bootstrap = _load_bootstrap(repo_root)
     _project, fdd_data = bootstrap.activate_full_runtime()
-    status = fdd_data.run_databook(source_dir, runs_root, output_root, approval_mode="AUTONOMOUS")
+    status = fdd_data.run_databook(
+        source_dir,
+        runs_root,
+        output_root,
+        approval_mode="AUTONOMOUS",
+    )
     if not isinstance(status, dict):
         raise RuntimeError("fdd-data-preparation returned an invalid workflow status payload.")
 
@@ -112,25 +140,45 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
     published_status = str(manifest.get("final_execution_status") or "")
     published_execution_id = str(manifest.get("execution_id") or "")
 
-    latest_belongs_to_current_run = bool(current_execution_id and published_execution_id and current_execution_id == published_execution_id)
-    standardized_output = latest if latest_belongs_to_current_run and latest.is_dir() and published_status in PUBLISHABLE_STATUSES else None
+    latest_belongs_to_current_run = bool(
+        current_execution_id
+        and published_execution_id
+        and current_execution_id == published_execution_id
+    )
+    standardized_output = (
+        latest
+        if latest_belongs_to_current_run
+        and latest.is_dir()
+        and published_status in PUBLISHABLE_STATUSES
+        else None
+    )
 
     warnings: list[str] = []
     if standardized_output is not None and published_status == "COMPLETED_WITH_WARNINGS":
         warnings.append("fdd-data-preparation published with warnings; see execution_manifest.json and databook_metadata.json.")
     if standardized_output is not None:
         try:
-            knowledge_report = bootstrap.sync_runtime_knowledge(source_dir=source_dir, source_fingerprint=source_fingerprint)
+            knowledge_report = bootstrap.sync_runtime_knowledge(
+                source_dir=source_dir,
+                source_fingerprint=source_fingerprint,
+            )
             if isinstance(knowledge_report, dict):
                 quarantined = int(knowledge_report.get("quarantined_rows") or 0)
                 if quarantined:
                     warnings.append(
-                        f"Reusable knowledge promotion quarantined {quarantined} source-specific candidate row(s); the published financial package is unaffected."
+                        f"Reusable knowledge promotion quarantined {quarantined} source-specific candidate row(s); "
+                        "the published financial package is unaffected."
                     )
-        except Exception as error:
+        except Exception as error:  # knowledge persistence must never invalidate a published financial package
             warnings.append(f"Reusable knowledge sync warning: {error}")
 
-    bridge_state = "DATA_PREP_READY" if standardized_output is not None else ("DATA_PREP_FAILED" if upstream_state == "FAILED" else f"DATA_PREP_{upstream_state}")
+    if standardized_output is not None:
+        bridge_state = "DATA_PREP_READY"
+    elif upstream_state == "FAILED":
+        bridge_state = "DATA_PREP_FAILED"
+    else:
+        bridge_state = f"DATA_PREP_{upstream_state}"
+
     return DataPrepBridgeResult(
         state=bridge_state,
         upstream_state=upstream_state,
@@ -146,13 +194,16 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
 
 
 def _attach_builtin_planning_knowledge(coordination: dict[str, Any], repo_root: Path) -> None:
+    """Attach the curated pattern library only to the dataset-planning checkpoint."""
     action = str(coordination.get("next_action") or "").upper()
     actor = str(coordination.get("next_actor") or "").upper()
     if actor != "AI_HOST" or action != "UNDERSTAND_AND_PLAN":
         return
+
     knowledge_path = Path(repo_root) / BUILTIN_KNOWLEDGE_RELATIVE
     if not knowledge_path.is_file():
         return
+
     coordination.setdefault("builtin_knowledge", BUILTIN_KNOWLEDGE_RELATIVE)
     coordination.setdefault("fast_start_mode", True)
     coordination.setdefault(
@@ -162,11 +213,13 @@ def _attach_builtin_planning_knowledge(coordination: dict[str, Any], repo_root: 
 
 
 def _coordination_from_status(status: dict[str, Any]) -> dict[str, Any]:
+    """Support the full upstream contract, which exposes coordination at top level."""
     nested = status.get("coordination")
     result = dict(nested) if isinstance(nested, dict) else {}
     for key in COORDINATION_KEYS:
         if key in status and status[key] is not None:
             result.setdefault(key, status[key])
+
     actor = str(result.get("next_actor") or "").upper()
     if actor == "AI_HOST":
         result["must_continue"] = True
