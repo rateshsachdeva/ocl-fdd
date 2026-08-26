@@ -16,14 +16,17 @@ class _FakeFddData:
 
 
 class _FakeBootstrap:
-    def __init__(self, status):
+    def __init__(self, status, knowledge_report=None):
         self.fdd_data = _FakeFddData(status)
+        self.knowledge_report = knowledge_report or {"accepted_rows": 0, "quarantined_rows": 0}
+        self.knowledge_sync_calls = []
 
     def activate_full_runtime(self):
         return Path("runtime"), self.fdd_data
 
-    def sync_runtime_knowledge(self):
-        return None
+    def sync_runtime_knowledge(self, **kwargs):
+        self.knowledge_sync_calls.append(dict(kwargs))
+        return dict(self.knowledge_report)
 
 
 def _source(tmp_path: Path, text: str = "source-v1") -> Path:
@@ -91,6 +94,7 @@ def test_old_latest_is_not_visible_to_changed_source_package(tmp_path: Path, mon
     assert result.ready is False
     assert result.output_root != old_latest.parent
     assert result.source_fingerprint == data_prep_bridge.source_package_fingerprint(source)
+    assert bootstrap.knowledge_sync_calls == []
 
 
 def test_current_published_execution_remains_reusable_for_same_source(tmp_path: Path, monkeypatch):
@@ -105,13 +109,41 @@ def test_current_published_execution_remains_reusable_for_same_source(tmp_path: 
         "next_action": "WORKFLOW_COMPLETE",
         "must_continue": False,
     }
-    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: _FakeBootstrap(status))
+    bootstrap = _FakeBootstrap(status)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
 
     result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
 
     assert result.state == "DATA_PREP_READY"
     assert result.standardized_output == latest
     assert result.ready is True
+    assert bootstrap.knowledge_sync_calls == [
+        {
+            "source_dir": source.resolve(),
+            "source_fingerprint": data_prep_bridge.source_package_fingerprint(source),
+        }
+    ]
+
+
+def test_quarantined_learning_is_visible_as_nonblocking_warning(tmp_path: Path, monkeypatch):
+    work_root = tmp_path / "data_prep"
+    source = _source(tmp_path)
+    _write_latest(work_root, source, "EX_CURRENT")
+    status = {
+        "state": "KNOWLEDGE_UPDATED",
+        "run_id": "RUN_CURRENT_SOURCE",
+        "execution_id": "EX_CURRENT",
+        "next_actor": "NONE",
+        "next_action": "WORKFLOW_COMPLETE",
+        "must_continue": False,
+    }
+    bootstrap = _FakeBootstrap(status, {"accepted_rows": 2, "quarantined_rows": 1})
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
+
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+
+    assert result.ready is True
+    assert any("quarantined 1" in warning for warning in result.warnings)
 
 
 def test_changed_source_gets_distinct_upstream_runs_and_output_roots(tmp_path: Path, monkeypatch):

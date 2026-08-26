@@ -5,11 +5,15 @@ old standalone ``run_databook.py`` member is not part of the imported runtime an
 is known to be damaged in the historical bundle; the repository now provides a
 clean standalone wrapper outside the bundle. All required runtime modules still
 receive full CRC/decompression validation before activation.
+
+Reusable knowledge persistence/promotion is intentionally delegated to
+``knowledge_system/store.py`` so bootstrap remains focused on runtime lifecycle.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import shutil
 import sys
 import tempfile
@@ -21,7 +25,6 @@ REFERENCE_BUNDLE_SHA256 = "27c75c2047bb1156f42dc5eebcaffac3f8c2a84c9262662c64377
 ROOT = Path(__file__).resolve().parent
 PARTS = ROOT / "vendor" / "runtime_parts"
 RUNTIME = ROOT / "runtime"
-PERSISTENT_KNOWLEDGE = ROOT.parent / "work" / "data_prep" / "knowledge"
 IGNORED_BUNDLE_MEMBERS = {"fdd-data-preparation/run_databook.py"}
 REQUIRED_RUNTIME_PATHS = (
     "src/fdd_data/orchestration.py",
@@ -37,6 +40,7 @@ REQUIRED_RUNTIME_PATHS = (
     "schemas/dataset_map.schema.json",
     "schemas/processing_plan.schema.json",
 )
+_KNOWLEDGE_MODULE_NAME = "_ocl_fdd_knowledge_system_store"
 
 
 def ensure_full_runtime() -> Path:
@@ -55,7 +59,7 @@ def ensure_full_runtime() -> Path:
     marker = RUNTIME / ".bundle_sha256"
     if project.is_dir() and marker.exists() and marker.read_text(encoding="utf-8").strip() == digest:
         _assert_required_runtime(project)
-        _overlay_persistent_knowledge(project)
+        _knowledge_module().hydrate_runtime(project, ROOT.parent, refresh_baseline=False)
         return project
 
     ROOT.mkdir(parents=True, exist_ok=True)
@@ -85,7 +89,8 @@ def ensure_full_runtime() -> Path:
         candidate = extracted / "fdd-data-preparation"
         _assert_required_runtime(candidate)
         if RUNTIME.exists():
-            _preserve_runtime_knowledge(project)
+            # Reusable knowledge is promoted only after a successful published
+            # workflow. Do not persist possibly partial runtime edits here.
             shutil.rmtree(RUNTIME)
         RUNTIME.mkdir(parents=True, exist_ok=False)
         shutil.move(str(candidate), str(project))
@@ -94,7 +99,7 @@ def ensure_full_runtime() -> Path:
             f"reference={REFERENCE_BUNDLE_SHA256}\nobserved={digest}\n",
             encoding="utf-8",
         )
-    _overlay_persistent_knowledge(project)
+    _knowledge_module().hydrate_runtime(project, ROOT.parent, refresh_baseline=True)
     return project
 
 
@@ -114,8 +119,34 @@ def activate_full_runtime() -> tuple[Path, object]:
     return project, fdd_data
 
 
-def sync_runtime_knowledge() -> None:
-    _preserve_runtime_knowledge(RUNTIME / "fdd-data-preparation")
+def sync_runtime_knowledge(
+    *,
+    source_dir: Path | None = None,
+    source_fingerprint: str | None = None,
+) -> dict:
+    """Promote safe reusable knowledge after a successfully published run."""
+    return _knowledge_module().promote_runtime(
+        RUNTIME / "fdd-data-preparation",
+        ROOT.parent,
+        source_dir=source_dir,
+        source_fingerprint=source_fingerprint,
+    )
+
+
+def _knowledge_module():
+    loaded = sys.modules.get(_KNOWLEDGE_MODULE_NAME)
+    if loaded is not None:
+        return loaded
+    path = ROOT / "knowledge_system" / "store.py"
+    if not path.exists():
+        raise FileNotFoundError("Reusable knowledge subsystem is missing from fdd-data-preparation.")
+    spec = importlib.util.spec_from_file_location(_KNOWLEDGE_MODULE_NAME, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load the reusable knowledge subsystem.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[_KNOWLEDGE_MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _bad_zip_members(package: ZipFile) -> list[str]:
@@ -137,29 +168,6 @@ def _assert_required_runtime(project: Path) -> None:
             "Vendored runtime archive does not contain the expected full fdd-data-preparation project: "
             + ", ".join(missing)
         )
-
-
-def _overlay_persistent_knowledge(project: Path) -> None:
-    source = PERSISTENT_KNOWLEDGE
-    destination = project / "knowledge"
-    if not source.is_dir():
-        return
-    destination.mkdir(parents=True, exist_ok=True)
-    for name in ("field_knowledge.csv", "structure_knowledge.csv", "corrections.csv"):
-        path = source / name
-        if path.exists():
-            shutil.copy2(path, destination / name)
-
-
-def _preserve_runtime_knowledge(project: Path) -> None:
-    source = project / "knowledge"
-    if not source.is_dir():
-        return
-    PERSISTENT_KNOWLEDGE.mkdir(parents=True, exist_ok=True)
-    for name in ("field_knowledge.csv", "structure_knowledge.csv", "corrections.csv"):
-        path = source / name
-        if path.exists():
-            shutil.copy2(path, PERSISTENT_KNOWLEDGE / name)
 
 
 if __name__ == "__main__":
