@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -36,6 +36,10 @@ def _build_balance_sheet(workbook, title: str, period: str):
     return sheet
 
 
+def _as_date(value):
+    return value.date() if isinstance(value, datetime) else value
+
+
 def test_display_preferences_black_dates_no_gridlines_total_fill_and_redundant_subtotal(tmp_path: Path):
     path = tmp_path / "OCL_Databook.xlsx"
     workbook = Workbook()
@@ -51,7 +55,7 @@ def test_display_preferences_black_dates_no_gridlines_total_fill_and_redundant_s
         sheet = workbook[sheet_name]
         assert sheet.sheet_view.showGridLines is False
         assert sheet.print_options.gridLines is False
-        assert sheet["C7"].value == date(2025, 12, 31)
+        assert _as_date(sheet["C7"].value) == date(2025, 12, 31)
         assert sheet["C7"].number_format == "dd-mmm-yy"
         assert sheet["C8"].font.color.type == "rgb"
         assert sheet["C8"].font.color.rgb.endswith("000000")
