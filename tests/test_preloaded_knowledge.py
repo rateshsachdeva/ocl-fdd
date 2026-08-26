@@ -30,7 +30,7 @@ def test_builtin_pack_contains_core_reusable_training_lessons():
     assert "PROJECT_ACCRUAL_ROLLFORWARD" in ids
     assert "ANALYSIS_SUPPORT_MATRIX" in ids
     assert "FDD_PARTNER_OUTPUT" in ids
-    assert any("current source evidence" in principle.casefold() for principle in payload["core_principles"])
+    assert any("prior reusable knowledge is evidence only" in principle.casefold() for principle in payload["core_principles"])
 
 
 def test_context_packet_matches_only_relevant_profile_patterns(tmp_path: Path):
@@ -69,7 +69,7 @@ def test_context_packet_matches_only_relevant_profile_patterns(tmp_path: Path):
     assert "WIDE_MONTHLY_ACTUAL_BUDGET_VARIANCE" in text
     assert "MULTIPLE_DATASETS_ONE_SHEET" in text
     assert "PROJECT_ACCRUAL_ROLLFORWARD" not in text
-    assert "current source evidence always wins" in text.casefold()
+    assert "current-source evidence always wins" in text.casefold()
 
 
 def test_ai_prompt_uses_compact_context_and_rejects_training_answer_keys():
