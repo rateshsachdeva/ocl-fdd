@@ -10,11 +10,11 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import load_workbook
-from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from ocl_agent.part1_databook.input_contract import StandardizedPackage
@@ -138,31 +138,96 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
     if not movements:
         return
     workbook = load_workbook(databook_path)
+    support = workbook["Movements"] if "Movements" in workbook.sheetnames else workbook.create_sheet("Movements")
     sheet = workbook["Roll-forward"] if "Roll-forward" in workbook.sheetnames else workbook.create_sheet("Roll-forward")
+    if support.max_row:
+        support.delete_rows(1, support.max_row)
     if sheet.max_row:
         sheet.delete_rows(1, sheet.max_row)
     grouped = _group_movements(movements)
+
+    support_headers = ["Source_Record_ID", "Source_Dataset", "Source_Row", "Period", "Category", "Movement_Role", "Raw_Amount", "Multiplier", "Signed_Amount"]
+    for column, value in enumerate(support_headers, start=1):
+        support.cell(1, column, value)
+    support_row = 2
+    for movement in movements:
+        if movement.judgment.scope != Scope.IN_SCOPE or not movement.judgment.category:
+            continue
+        values = [
+            movement.source.source_record_id,
+            movement.dimensions.get("dataset_file"),
+            movement.dimensions.get("standardized_csv_row"),
+            movement.period,
+            str(movement.judgment.category),
+            movement.movement_role,
+            movement.amount,
+            movement.multiplier,
+        ]
+        for column, value in enumerate(values, start=1):
+            support.cell(support_row, column, value)
+        support.cell(support_row, 9, f"=G{support_row}*H{support_row}")
+        support_row += 1
+    support.freeze_panes = "A2"
+    support.sheet_view.showGridLines = False
+
     sheet["A1"] = PROJECT_LABEL
     sheet["A2"] = "Roll-forward"
-    sheet["B6"] = "OCL movement bridge"
-    headers = ["Category", "Period", "Opening", "Net movement", "Closing", "Calculated closing", "Difference"]
-    for column, value in enumerate(headers, start=2):
-        sheet.cell(7, column, value)
-    for row_number, ((period, category), values) in enumerate(sorted(grouped.items()), start=8):
-        sheet.cell(row_number, 2, category)
-        sheet.cell(row_number, 3, period)
-        sheet.cell(row_number, 4, values["OPENING"])
-        sheet.cell(row_number, 5, values["FLOW"])
-        sheet.cell(row_number, 6, values["CLOSING"])
-        sheet.cell(row_number, 7, f"=D{row_number}+E{row_number}")
-        sheet.cell(row_number, 8, f"=G{row_number}-F{row_number}")
-    sheet.freeze_panes = "B8"
+    periods = sorted({period for period, _category in grouped})
+    categories = sorted({category for _period, category in grouped})
+    current_row = 6
+    for category in categories:
+        sheet.cell(current_row, 2, category)
+        header_row = current_row + 1
+        sheet.cell(header_row, 2, "Movement")
+        for column, period in enumerate(periods, start=3):
+            cell = sheet.cell(header_row, column, _display_period(period))
+            if cell.value != period:
+                cell.number_format = "mmmyy"
+        opening_row = header_row + 1
+        flow_row = header_row + 2
+        closing_row = header_row + 3
+        calculated_row = header_row + 4
+        for row_number, label in (
+            (opening_row, "Opening"),
+            (flow_row, "Net movement"),
+            (closing_row, "Closing"),
+            (calculated_row, "Calculated closing"),
+        ):
+            sheet.cell(row_number, 2, label)
+        category_criteria = category.replace('"', '""')
+        for column, period in enumerate(periods, start=3):
+            period_criteria = period.replace('"', '""')
+            letter = get_column_letter(column)
+            if column == 3:
+                opening_formula = _movement_sumifs(category_criteria, period_criteria, "OPENING")
+            else:
+                opening_formula = f"={get_column_letter(column - 1)}{closing_row}"
+            sheet.cell(opening_row, column, opening_formula)
+            sheet.cell(flow_row, column, _movement_sumifs(category_criteria, period_criteria, "FLOW"))
+            sheet.cell(closing_row, column, _movement_sumifs(category_criteria, period_criteria, "CLOSING"))
+            sheet.cell(calculated_row, column, f"={letter}{opening_row}+{letter}{flow_row}")
+        current_row = calculated_row + 3
+    sheet.freeze_panes = "C8"
     sheet.sheet_view.showGridLines = False
-    for cell in sheet[7]:
-        cell.font = Font(bold=True)
     for column in range(2, sheet.max_column + 1):
         sheet.column_dimensions[get_column_letter(column)].width = 18
     workbook.save(databook_path)
+
+
+def _movement_sumifs(category: str, period: str, role: str) -> str:
+    return (
+        f'=SUMIFS(\'Movements\'!$I:$I,\'Movements\'!$E:$E,"{category}",'
+        f'\'Movements\'!$D:$D,"{period}",\'Movements\'!$F:$F,"{role}")'
+    )
+
+
+def _display_period(value: str):
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%d-%b-%Y", "%d-%b-%y", "%b-%y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return value
 
 
 def _group_movements(movements: tuple[MovementRecord, ...]) -> dict[tuple[str, str], dict[str, Decimal]]:

@@ -75,6 +75,7 @@ def build_blueprint(
         SheetBlueprint("scope_excluded", "SCOPE_EXCLUDED", "Rows excluded from OCL with retained lineage.", required=True),
     ])
     if has_rollforward_data and all_in_scope:
+        sheets.append(SheetBlueprint("movements_support", "Movements", "Deterministic movement support used by the formula-linked roll-forward."))
         sheets.append(SheetBlueprint("rollforward", "Roll-forward", "Roll-forward supported by available movement data.", periods, categories))
     allowed_analyses = {
         "seasonality": ("Seasonality", "Seasonality supported by reconciled monthly data."),

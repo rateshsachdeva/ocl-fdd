@@ -27,6 +27,10 @@ def _build_case(root: Path, *, unknown_type: bool = False):
     _write_csv(package / "ocl_annual.csv", ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Amount"], annual)
     movement_type = "Mystery" if unknown_type else "Utilisation"
     movements = [
+        ["M0A", "FY24", "Bonus accrual", "2100", "Entity A", "Opening", 250],
+        ["M0B", "FY24", "Bonus accrual", "2100", "Entity A", "Additions", 50],
+        ["M0C", "FY24", "Bonus accrual", "2100", "Entity A", "Utilisation", 0],
+        ["M0D", "FY24", "Bonus accrual", "2100", "Entity A", "Closing", 300],
         ["M1", "FY25", "Bonus accrual", "2100", "Entity A", "Opening", 300],
         ["M2", "FY25", "Bonus accrual", "2100", "Entity A", "Additions", 200],
         ["M3", "FY25", "Bonus accrual", "2100", "Entity A", movement_type, 50],
@@ -69,10 +73,16 @@ def test_explicit_movement_rules_produce_rollforward(tmp_path: Path):
     assert rollforward.status.value == "PASS"
     workbook = load_workbook(result.databook, data_only=False, read_only=True)
     assert "Roll-forward" in workbook.sheetnames
+    assert "Movements" in workbook.sheetnames
     sheet = workbook["Roll-forward"]
-    assert sheet["B7"].value == "Category"
-    assert sheet["G8"].value == "=D8+E8"
-    assert sheet["H8"].value == "=G8-F8"
+    assert sheet["B6"].value == "Bonus accrual"
+    assert sheet["B7"].value == "Movement"
+    assert [sheet.cell(row, 2).value for row in range(8, 12)] == ["Opening", "Net movement", "Closing", "Calculated closing"]
+    assert sheet["C8"].value.startswith("=SUMIFS('Movements'!")
+    assert sheet["D8"].value == "=C10"
+    assert sheet["C11"].value == "=C8+C9"
+    assert sheet["D11"].value == "=D8+D9"
+    assert workbook["Movements"]["I2"].value == "=G2*H2"
     workbook.close()
 
 

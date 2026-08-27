@@ -124,6 +124,52 @@ def test_ai_partner_render_surfaces_partner_context_and_never_leaves_tabs_blank(
     assert wb["Deal Issues"]["A5"].value
     assert wb["Key Findings"]["B8"].value == "KF_01"
     assert wb["Key Findings"]["C8"].value == "Normalized working capital"
-    assert wb["Key Findings"]["K8"].value == "Only the analyses included in the evidence package were assessed."
+    assert wb["Key Findings"]["I8"].value == "Only the analyses included in the evidence package were assessed."
+    headers = [wb["Key Findings"].cell(7, column).value for column in range(2, 12)]
+    assert "Movement" not in headers and "Magnitude" not in headers and "Ask management" not in headers
+    for header in ("FDD implication / So what", "Evidence", "Evidence limitation", "Fact to establish"):
+        column = headers.index(header) + 2
+        assert wb["Key Findings"].column_dimensions[wb["Key Findings"].cell(7, column).column_letter].width == 50
+        assert wb["Key Findings"].cell(8, column).alignment.wrap_text is True
+    assert not wb["Deal Issues"].merged_cells.ranges
+    assert wb["Deal Issues"].column_dimensions["A"].width == 90
+    assert wb["Deal Issues"]["A5"].alignment.wrap_text is True
+    qa_headers = {wb["Q&A"].cell(7, column).value: column for column in range(2, 9)}
+    for header in ("Question", "Why it matters", "Evidence trigger"):
+        column = qa_headers[header]
+        assert wb["Q&A"].column_dimensions[wb["Q&A"].cell(7, column).column_letter].width == 50
     assert "No material management question" in wb["Q&A"]["C8"].value
     wb.close()
+
+
+def test_deal_issue_layout_is_single_column_without_figure_row(tmp_path: Path):
+    workbook_path = tmp_path / "OCL_Databook.xlsx"
+    workbook = Workbook()
+    workbook.active.title = "Flat File"
+    workbook.save(workbook_path)
+    interpretation = {
+        "overall_assessment": "One issue requires follow-up.",
+        "deal_issues": [
+            {
+                "title": "Closing balance representativeness",
+                "priority": "HIGH",
+                "fdd_lens": "Normalized working capital",
+                "so_what": "The closing balance may not represent the in-year level.",
+                "evidence": "Monthly balances vary through the year.",
+                "evidence_limit": "The schedule does not establish the operational cause.",
+                "management_focus": "The operational driver and expected settlement timing.",
+                "linked_finding_id": None,
+            }
+        ],
+        "key_findings": [],
+        "management_questions": [],
+    }
+    apply_partner_interpretation(workbook_path, _analysis(), interpretation)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Deal Issues"]
+    assert not sheet.merged_cells.ranges
+    assert sheet.column_dimensions["A"].width == 90
+    assert all(sheet.cell(row, 1).alignment.wrap_text is True for row in range(4, 9))
+    assert all(sheet.cell(row, column).value in (None, "") for row in range(1, sheet.max_row + 1) for column in range(2, sheet.max_column + 1))
+    assert "Figure" not in [cell.value for row in sheet.iter_rows() for cell in row]
+    workbook.close()

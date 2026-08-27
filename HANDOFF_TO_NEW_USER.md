@@ -56,7 +56,7 @@ raw client files
   -> OCL reviewed judgments + controls
   -> Python databook + analytical evidence
   -> AI: WRITE_FDD_PARTNER_ANALYSIS
-  -> Python final Excel/PPT + QA + versioning
+  -> Python final Excel presentation + QA + versioning
 ```
 
 Normal contextual AI usage is therefore two reasoning stages. Python owns financial amounts, calculations, controls, reconciliations and rendering.
@@ -94,11 +94,10 @@ The skill must **not** pretend to have tested matters for which the necessary ev
 
 ## Final output
 
-A completed run publishes matching versioned deliverables, for example:
+A completed run publishes one immutable versioned databook, for example:
 
 ```text
 output/OCL_Databook_v1.xlsx
-output/OCL_Report_v1.pptx
 ```
 
 Later completed runs create `v2`, `v3`, etc. Existing versioned outputs are not overwritten.

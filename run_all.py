@@ -24,10 +24,8 @@ if str(SRC) not in sys.path:
 
 from ocl_agent.ai_host_cli import run_ai_host
 from ocl_agent.config import ensure_runtime_folders
-from ocl_agent.databook_display import apply_databook_display_preferences
 from ocl_agent.end_to_end import run_end_to_end
 from ocl_agent.final_qa import FinalQAError
-from ocl_agent.output_versioning import publish_versioned_deliverables
 from ocl_agent.part1_databook.input_contract import InputContractError
 from ocl_agent.part1_databook.judgments import JudgmentError
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoffError
@@ -43,7 +41,6 @@ def main() -> int:
         help="Optional existing published fdd-data-preparation output/latest directory; normally omit this.",
     )
     parser.add_argument("--part1-only", action="store_true", help="Stop after the reconciled styled databook is ready.")
-    parser.add_argument("--skip-report", action="store_true", help="Create the Excel databook but skip the secondary PowerPoint report.")
     parser.add_argument(
         "--ai-host",
         choices=AI_HOST_CHOICES,
@@ -83,7 +80,6 @@ def main() -> int:
                 paths,
                 data_prep_output=args.data_prep_output,
                 part1_only=args.part1_only,
-                skip_report=args.skip_report,
             )
         except (FileNotFoundError, ValueError, RuntimeError, InputContractError, JudgmentError, SemanticHandoffError, FinalQAError) as error:
             elapsed = time.perf_counter() - pass_started
@@ -148,26 +144,10 @@ def main() -> int:
             print(f"Workflow coordination requires review: {action or actor or 'UNKNOWN'}")
             return finish(0)
 
-        published = None
-        if result.databook and result.state in {"READY", "DATABOOK_READY"}:
-            try:
-                handoff = result.part1.handoff if result.part1 is not None else None
-                apply_databook_display_preferences(result.databook, handoff)
-                published = publish_versioned_deliverables(
-                    result.databook,
-                    result.report,
-                    paths.output,
-                )
-            except OSError as error:
-                print(f"OCL stopped safely: completed outputs could not be finalized/versioned: {error}")
-                return finish(2)
-            print(f"Published deliverable version: v{published.version}")
-
-        databook_path = published.databook if published is not None else result.databook
-        report_path = published.report if published is not None else result.report
-
-        if databook_path:
-            print(f"Databook: {databook_path}")
+        if result.published_version is not None:
+            print(f"Published deliverable version: v{result.published_version}")
+        if result.databook:
+            print(f"Databook: {result.databook}")
         if result.qa:
             print(f"Final QA: {result.qa.get('status')}")
         if args.part1_only:
@@ -175,8 +155,6 @@ def main() -> int:
             return finish(0)
         print(f"Part 2 findings: {result.findings}")
         print(f"Part 3 management questions: {result.questions}")
-        if report_path:
-            print(f"Report: {report_path}")
         print("OCL workflow: READY")
         return finish(0 if result.state == "READY" else 2)
 
@@ -190,6 +168,12 @@ def _print_result_summary(result) -> None:
         print(f"Published standardized data: {result.data_prep_output}")
     if result.runtime_config:
         print(f"Package review config: {result.runtime_config}")
+    if result.checkpoint:
+        print(f"Workflow checkpoint: {result.checkpoint}")
+    if result.timings:
+        print("Deterministic stage timings:")
+        for stage, elapsed in result.timings.items():
+            print(f"  {stage}: {_format_duration(elapsed)}")
     for warning in result.warnings:
         print(f"Warning: {warning}")
     if result.coordination:

@@ -41,13 +41,24 @@ Python OCL scope/model/controls/databook + evidence-aware analytical tables
         ↓
 AI #2: FDD-partner Deal Issues + Key Findings + Q&A
         ↓
-Python workbook/PPT rendering + independent final QA
+Python final workbook presentation + independent final QA
         ↓
 output/OCL_Databook_vN.xlsx
-output/OCL_Report_vN.pptx
 ```
 
-The raw source workbooks are read-only and are not committed to Git. The Excel databook is the principal deliverable.
+The raw source workbooks are read-only and are not committed to Git. The Excel databook is the only active MVP deliverable.
+
+```text
+output/
+    OCL_Databook_vN.xlsx
+    support working/          # human-reviewable support workbooks
+
+work/
+    ocl_runtime/<package_id>/ # working workbook + resumable checkpoint + QA
+    analysis/<package_id>/    # finalized evidence + AI #2 interpretation
+```
+
+At the AI #2 checkpoint, reruns validate content hashes and resume from the existing working workbook. Valid resume does not rebuild Part 1 or deterministic analysis.
 
 A first run on a new source may intentionally stop at `HUMAN / REVIEW_OCL_JUDGMENTS` for scope, category/hierarchy, WC/debt-like or normal/one-off review. That is a governance checkpoint, not a broken run. Reviewed human judgment remains authoritative.
 
@@ -72,7 +83,7 @@ The automatic GitHub Copilot child checkpoint is deliberately narrow: it may rea
 
 ## Evidence-aware analysis
 
-The databook includes an `Analysis Coverage` view so a reviewer can see what the supplied evidence genuinely supports.
+Analysis coverage remains in the internal evidence package for deterministic validation and AI #2; it is not rendered as a client-facing worksheet.
 
 Depending on the source package, Python can calculate:
 
@@ -99,7 +110,7 @@ The workflow does **not** infer unsupported work. True adequacy testing, missing
 - **Source traceability.** `Source_Record_ID` and upstream lineage are retained through the OCL model.
 - **Reconciliation is a hard gate.** Applicable controls must pass; missing evidence is not solved with plugs.
 - **Human judgment remains authoritative.** Scope, mapping/hierarchy, WC/debt-like and normal/one-off decisions remain reviewable; existing reviewed config wins.
-- **Lightweight downstream runtime.** OCL uses standard-library CSV/JSON plus `openpyxl` and `python-pptx`; no pandas and no embedded external LLM API.
+- **Lightweight downstream runtime.** OCL uses standard-library CSV/JSON plus `openpyxl`; no pandas and no embedded external LLM API. Reusable report code remains disconnected from the active MVP.
 
 ## Existing standardized package
 

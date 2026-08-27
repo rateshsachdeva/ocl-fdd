@@ -20,15 +20,27 @@ def test_part1_renders_source_linked_dynamic_databook(tmp_path: Path):
     (root/'databook_metadata.json').write_text(json.dumps({'workflow_run_id':'RUN1','logical_datasets':[]}))
     config=tmp_path/'config'; _write_config(config)
     (config/'semantic_handoff.json').write_text(json.dumps({'handoff_version':'1.0','status':'CONFIRMED','package_id':'RUN1','datasets':[{'file':'annual.csv','usages':['OCL_RECORDS'],'fields':{'source_record_id':'Source_Record_ID','period':'Period','amount':'Amount','source_label':'Account','source_code':'Code'},'dimensions':[]}]}))
-    result=run_part1(root,config,tmp_path/'output')
+    output = tmp_path/'output'
+    working = tmp_path/'work'/'ocl_runtime'/'RUN1'/'OCL_Databook_working.xlsx'
+    support = output/'support working'/'RUN1'
+    result=run_part1(root,config,output,working_databook=working,support_dir=support)
     assert result.state=='DATABOOK_READY'
+    assert result.databook == working
+    assert not (output/'OCL_Databook.xlsx').exists()
+    assert (support/'OCL_Input_Review.xlsx').exists()
+    assert (support/'OCL_Stage2_Review.xlsx').exists()
+    assert result.review_context.parent == working.parent
     workbook=load_workbook(result.databook,data_only=False)
     source=[name for name in workbook.sheetnames if name.startswith('SRC_')][0]
     assert workbook[source].protection.sheet is True
     assert workbook['Flat File']['N3'].value==f"='{source}'!E2"
     assert workbook['Flat File']['A2'].value=='Source_Dataset'
     assert workbook['Balance by Category']['B7'].value=='Category'
-    assert workbook['Balance by Category']['C8'].value.startswith('=SUMIFS(')
+    assert workbook['Balance by Category']['B8'].value == 'Employee accruals'
+    assert workbook['Balance by Category']['C8'].value == '=SUM(C9:C9)'
+    assert workbook['Balance by Category']['C9'].value.startswith('=SUMIFS(')
+    assert workbook['Balance by Category'].row_dimensions[9].outlineLevel == 1
+    assert workbook['Balance by Category'].row_dimensions[9].hidden is True
 
 
 def test_part1_uses_actual_annual_and_monthly_periods_and_tb_control(tmp_path: Path):

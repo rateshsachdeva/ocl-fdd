@@ -18,6 +18,7 @@ from openpyxl import load_workbook
 from openpyxl.chart.legend import Legend
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font, PatternFill
+from ocl_agent.workbook_hierarchy import apply_collapsed_detail_group
 
 BLACK = "000000"
 GRAND_TOTAL = "E5E5E5"
@@ -29,6 +30,13 @@ def apply_databook_display_preferences(path: Path, handoff: Any | None = None) -
     """Apply the user-facing display contract to a completed databook."""
     path = Path(path)
     workbook = load_workbook(path)
+    apply_display_preferences_to_workbook(workbook, handoff)
+    workbook.save(path)
+    return path
+
+
+def apply_display_preferences_to_workbook(workbook, handoff: Any | None = None) -> None:
+    """Apply final display preferences to an already-open workbook."""
     annual_alignment = _annual_alignment(handoff)
 
     for sheet in workbook.worksheets:
@@ -36,18 +44,16 @@ def apply_databook_display_preferences(path: Path, handoff: Any | None = None) -
         _black_financial_numbers(sheet)
         _format_period_headers(sheet, annual_alignment)
 
-    for name in ("Balance by Category", "Monthly Balance"):
+    for name in ("Balance by Category", "Monthly Balance", "Seasonality", "Analysis Summary"):
         if name not in workbook.sheetnames:
             continue
         sheet = workbook[name]
-        _hide_redundant_subtotals(sheet)
+        _ensure_outline_groups(sheet)
         _format_total_ocl(sheet)
 
     if "Item Monthly Charts" in workbook.sheetnames:
         _format_monthly_charts(workbook["Item Monthly Charts"])
 
-    workbook.save(path)
-    return path
 
 
 def _hide_gridlines(sheet) -> None:
@@ -79,9 +85,12 @@ def _annual_alignment(handoff: Any | None) -> dict[str, str]:
     result: dict[str, str] = {}
     if handoff is None:
         return result
-    for item in getattr(handoff, "monthly_to_annual", ()) or ():
-        annual = str(getattr(item, "annual_period", "") or "").strip()
-        monthly = str(getattr(item, "monthly_period", "") or "").strip()
+    items = handoff.get("monthly_to_annual", ()) if isinstance(handoff, dict) else getattr(handoff, "monthly_to_annual", ())
+    for item in items or ():
+        annual_value = item.get("annual_period") if isinstance(item, dict) else getattr(item, "annual_period", None)
+        monthly_value = item.get("monthly_period") if isinstance(item, dict) else getattr(item, "monthly_period", None)
+        annual = str(annual_value or "").strip()
+        monthly = str(monthly_value or "").strip()
         if annual and monthly:
             result[annual] = monthly
     return result
@@ -185,39 +194,19 @@ def _subtotal_range(sheet, row: int, first_value_col: int) -> tuple[int, int] | 
     return ranges[0]
 
 
-def _hide_redundant_subtotals(sheet) -> None:
+def _ensure_outline_groups(sheet) -> None:
     layout = _find_category_layout(sheet)
     if layout is None:
         return
     header_row, category_col, total_row = layout
     first_value_col = category_col + 1
 
-    candidates: dict[int, tuple[int, int]] = {}
     for row in range(header_row + 1, total_row):
         if sheet.cell(row, category_col).value in (None, ""):
             continue
         range_rows = _subtotal_range(sheet, row, first_value_col)
-        if range_rows is not None:
-            candidates[row] = range_rows
-
-    # A subtotal over one child is purely duplicative.
-    for row, (start_row, end_row) in candidates.items():
-        if start_row == end_row:
-            sheet.row_dimensions[row].hidden = True
-
-    # If one parent subtotal covers every leaf row, it is identical to Total OCL.
-    visible_candidates = [row for row in candidates if not sheet.row_dimensions[row].hidden]
-    if len(visible_candidates) != 1:
-        return
-    parent_row = visible_candidates[0]
-    start_row, end_row = candidates[parent_row]
-    leaf_rows = [
-        row
-        for row in range(header_row + 1, total_row)
-        if row not in candidates and sheet.cell(row, category_col).value not in (None, "")
-    ]
-    if leaf_rows and all(start_row <= row <= end_row for row in leaf_rows):
-        sheet.row_dimensions[parent_row].hidden = True
+        if range_rows is not None and range_rows[0] > row:
+            apply_collapsed_detail_group(sheet, row, range_rows[0], range_rows[1])
 
 
 def _format_total_ocl(sheet) -> None:

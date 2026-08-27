@@ -2,7 +2,7 @@
 
 ## Objective
 
-Build a traceable, dynamically structured Other Current Liabilities financial-due-diligence databook from raw client source files, then produce evidence-based analysis, management questions and a secondary PowerPoint report from one shared reconciled OCL model.
+Build a traceable, dynamically structured Other Current Liabilities financial-due-diligence databook from raw client source files, with evidence-based analysis and management questions from one shared reconciled OCL model.
 
 The user-facing workflow is:
 
@@ -12,7 +12,6 @@ put raw files in references/source/
 python run_all.py
         ↓
 output/OCL_Databook_vN.xlsx
-output/OCL_Report_vN.pptx
 ```
 
 ## Architecture
@@ -44,7 +43,7 @@ Deal Issues + Key Findings + Management Q&A
         ↓
 final workbook styling + deterministic QA
         ↓
-versioned OCL_Databook_vN.xlsx + OCL_Report_vN.pptx
+versioned OCL_Databook_vN.xlsx
 ```
 
 `run_all.py` is the public launcher.
@@ -110,10 +109,10 @@ Core transparency concepts remain mandatory where relevant:
 - `Mapping`;
 - `UNMAPPED`;
 - `SCOPE_EXCLUDED`;
-- `Analysis Coverage` in a full Part 2 run;
+- internal analysis-coverage evidence in a full Part 2 run;
 - protected standardized `SRC_*` tabs / source evidence.
 
-Children appear before parent subtotals. Parent rows and Total OCL are formula-driven. If a genuine residual exists within a category, it must remain explicit (for example `Unallocated within category`) rather than being hidden in a plug.
+Parent rows appear before grouped/collapsed child detail. Parent rows and Total OCL are formula-driven. If a genuine residual exists within a category, it must remain explicit (for example `Unallocated within category`) rather than being hidden in a plug.
 
 ### Reconciliation is a hard gate
 
@@ -163,7 +162,7 @@ One or more hard controls require explicit source-backed alignment or contain a 
 
 ### `DATABOOK_READY`
 
-Part 1 creates the working `output/OCL_Databook.xlsx` and downstream analysis/reporting use the same reconciled OCL model. A completed launcher run publishes versioned snapshots.
+Part 1 creates `work/ocl_runtime/<package_id>/OCL_Databook_working.xlsx`. Downstream analysis and AI #2 rendering use that same reconciled workbook. A hash-bound `workflow_checkpoint.json` allows valid resume without rebuilding completed deterministic stages. Only after final presentation and QA is `output/OCL_Databook_vN.xlsx` published atomically.
 
 ## Standardized-package semantic handoff
 
@@ -237,7 +236,7 @@ Python also analyses reviewed:
 
 ### Analysis Coverage — hard evidence boundary
 
-The full databook includes `Analysis Coverage` with statuses such as `SUPPORTED`, `PARTIAL`, `REFERENCE_ONLY` and `UNSUPPORTED`.
+The internal analysis evidence includes coverage statuses such as `SUPPORTED`, `PARTIAL`, `REFERENCE_ONLY` and `UNSUPPORTED`; the active client-facing workbook does not render a separate Analysis Coverage tab.
 
 The skill must never pretend an analysis is supported because the output would otherwise look incomplete.
 
@@ -312,6 +311,6 @@ The workflow is complete only when:
 7. the databook reopens cleanly and passes final QA;
 8. analysis coverage accurately reflects the supplied evidence;
 9. Deal Issues, Key Findings and management questions use the same reconciled evidence pack;
-10. matching versioned Excel and PowerPoint outputs are produced unless the report is explicitly skipped.
+10. an immutable versioned Excel databook is published after final presentation and QA.
 
 For transfer to another user, see `HANDOFF_TO_NEW_USER.md`.

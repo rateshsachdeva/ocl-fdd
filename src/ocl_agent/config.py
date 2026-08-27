@@ -16,6 +16,18 @@ class RepoPaths:
     source: Path
     other: Path
 
+    @property
+    def work(self) -> Path:
+        return self.output.parent / "work"
+
+    @property
+    def ocl_runtime(self) -> Path:
+        return self.work / "ocl_runtime"
+
+    @property
+    def support_working(self) -> Path:
+        return self.output / "support working"
+
 
 def repo_paths(root: Path | None = None) -> RepoPaths:
     base = (root or Path(__file__).resolve().parents[2]).resolve()
@@ -32,7 +44,7 @@ def repo_paths(root: Path | None = None) -> RepoPaths:
 
 def ensure_runtime_folders(root: Path | None = None) -> RepoPaths:
     paths = repo_paths(root)
-    for path in (paths.assets, paths.config, paths.output, paths.source, paths.other):
+    for path in (paths.assets, paths.config, paths.output, paths.support_working, paths.source, paths.other):
         path.mkdir(parents=True, exist_ok=True)
     return paths
 

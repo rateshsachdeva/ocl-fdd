@@ -47,10 +47,9 @@ AI #2: WRITE_FDD_PARTNER_ANALYSIS
         │
         └─ Deal Issues + Key Findings + Management Q&A from Python evidence
         ↓
-Python: render narratives + styling + PPT + independent final QA
+Python: render narratives + one final workbook presentation pass + independent final QA
         ↓
 output/OCL_Databook_vN.xlsx
-output/OCL_Report_vN.pptx
 ```
 
 For a normal canonical package, those are the only two AI reasoning passes. A semantic-review or control-investigation AI step is an exception path only when the evidence genuinely cannot be resolved by the canonical contract and deterministic controls.

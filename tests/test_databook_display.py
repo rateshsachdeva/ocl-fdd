@@ -22,14 +22,14 @@ def _build_balance_sheet(workbook, title: str, period: str):
     sheet.sheet_view.showGridLines = True
     sheet["B7"] = "Category"
     sheet["C7"] = period
-    sheet["B8"] = "Bonus accrual"
-    sheet["C8"] = "=100"
+    sheet["B8"] = "Employee accruals"
+    sheet["C8"] = "=SUM(C9:C10)"
     sheet["C8"].font = Font(name="Arial", size=8, color="008000")
-    sheet["B9"] = "Holiday pay"
-    sheet["C9"] = "=200"
+    sheet["B9"] = "Bonus accrual"
+    sheet["C9"] = "=100"
     sheet["C9"].font = Font(name="Arial", size=8, color="008000")
-    sheet["B10"] = "Employee accruals"
-    sheet["C10"] = "=SUM(C8:C9)"
+    sheet["B10"] = "Holiday pay"
+    sheet["C10"] = "=200"
     sheet["C10"].font = Font(name="Arial", size=8, color="008000")
     sheet["B11"] = "Total OCL"
     sheet["C11"] = "=C8+C9"
@@ -60,7 +60,11 @@ def test_display_preferences_black_dates_no_gridlines_total_fill_and_redundant_s
         assert sheet["C7"].number_format == "mmmyy"
         assert sheet["C8"].font.color.type == "rgb"
         assert sheet["C8"].font.color.rgb.endswith("000000")
+        assert sheet.row_dimensions[9].hidden is True
+        assert sheet.row_dimensions[9].outlineLevel == 1
         assert sheet.row_dimensions[10].hidden is True
+        assert sheet.row_dimensions[10].outlineLevel == 1
+        assert sheet.row_dimensions[8].collapsed is True
         assert sheet["B11"].fill.fgColor.rgb.endswith("E5E5E5")
         assert sheet["C11"].fill.fgColor.rgb.endswith("E5E5E5")
         assert sheet["C11"].font.color.rgb.endswith("000000")
@@ -74,12 +78,12 @@ def test_nonredundant_parent_subtotals_remain_visible(tmp_path: Path):
     sheet = workbook.create_sheet("Balance by Category")
     sheet["B7"] = "Category"
     sheet["C7"] = "FY25"
-    sheet["B8"] = "Bonus accrual"
-    sheet["C8"] = "=100"
-    sheet["B9"] = "Holiday pay"
-    sheet["C9"] = "=200"
-    sheet["B10"] = "Employee accruals"
-    sheet["C10"] = "=SUM(C8:C9)"
+    sheet["B8"] = "Employee accruals"
+    sheet["C8"] = "=SUM(C9:C10)"
+    sheet["B9"] = "Bonus accrual"
+    sheet["C9"] = "=100"
+    sheet["B10"] = "Holiday pay"
+    sheet["C10"] = "=200"
     sheet["B11"] = "VAT payable"
     sheet["C11"] = "=150"
     sheet["B12"] = "Total OCL"
@@ -90,7 +94,8 @@ def test_nonredundant_parent_subtotals_remain_visible(tmp_path: Path):
 
     workbook = load_workbook(path)
     sheet = workbook["Balance by Category"]
-    assert sheet.row_dimensions[10].hidden is False
+    assert sheet.row_dimensions[8].hidden is False
+    assert sheet.row_dimensions[8].collapsed is True
     assert sheet["B12"].fill.fgColor.rgb.endswith("E5E5E5")
     workbook.close()
 

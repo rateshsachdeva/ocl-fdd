@@ -3,12 +3,10 @@ import json
 from pathlib import Path
 
 from openpyxl import load_workbook
-from pptx import Presentation
 
 from ocl_agent.part1_databook.run import run_part1
 from ocl_agent.part2_analysis.run import run_analysis
 from ocl_agent.part3_qanda.run import run_qanda
-from ocl_agent.part4_report.run import run_report
 from ocl_agent.workbook_style import apply_workbook_style
 
 
@@ -115,8 +113,6 @@ def test_complete_synthetic_workflow(tmp_path: Path):
     questions = run_qanda(analysis, part1.databook)
     assert questions
     apply_workbook_style(part1.databook)
-    report = run_report(analysis, questions, output)
-    assert report.exists()
     workbook = load_workbook(part1.databook, read_only=False, data_only=False)
     expected_front = ["Deal Issues", "Key Findings", "Q&A", "Checks", "Balance by Category"]
     assert workbook.sheetnames[:5] == expected_front
@@ -133,7 +129,6 @@ def test_complete_synthetic_workflow(tmp_path: Path):
     assert workbook["Key Findings"]["A1"].font.size == 14
     assert workbook["Key Findings"]["B6"].fill.fgColor.rgb.endswith("00338D")
     workbook.close()
-    assert len(Presentation(report).slides) >= 4
 
 
 def test_annual_only_degrades_gracefully(tmp_path: Path):
@@ -153,11 +148,9 @@ def test_annual_only_degrades_gracefully(tmp_path: Path):
     analysis = run_analysis(part1.build.records, part1.databook)
     questions = run_qanda(analysis, part1.databook)
     apply_workbook_style(part1.databook)
-    report = run_report(analysis, questions, output)
     workbook = load_workbook(part1.databook, read_only=True)
     assert "Monthly Balance" not in workbook.sheetnames
     assert "Seasonality" not in workbook.sheetnames
     assert "Item Monthly Charts" not in workbook.sheetnames
     assert "Q&A" in workbook.sheetnames
     workbook.close()
-    assert report.exists()

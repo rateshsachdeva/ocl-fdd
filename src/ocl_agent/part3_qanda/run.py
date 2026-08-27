@@ -26,7 +26,7 @@ def _embed_questions(path: Path, questions: tuple[ManagementQuestion, ...], anal
     sheet["A1"] = PROJECT_LABEL
     sheet["A2"] = "Management Q&A"
     sheet["B6"] = "Material management questions arising from the OCL analysis"
-    headers = ["#", "Theme", "Question", "Evidence", "Management response"]
+    headers = ["#", "FDD Lens", "Theme", "Question", "Why it matters", "Evidence trigger", "Management Response"]
     for column, value in enumerate(headers, start=2):
         sheet.cell(7, column, value)
 
@@ -35,7 +35,8 @@ def _embed_questions(path: Path, questions: tuple[ManagementQuestion, ...], anal
     for number, item in enumerate(ordered, start=1):
         finding = finding_by_id.get(item.linked_finding_id)
         row = number + 7
-        values = [number, _theme(finding), item.question, _evidence(finding, item), ""]
+        theme = _theme(finding)
+        values = [number, theme, theme, item.question, item.rationale, _evidence(finding, item), ""]
         for column, value in enumerate(values, start=2):
             sheet.cell(row, column, value)
 

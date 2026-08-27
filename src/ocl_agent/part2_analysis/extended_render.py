@@ -13,11 +13,17 @@ PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 def embed_extended_analysis(path: Path, result: AnalysisResult) -> None:
+    """Keep extended analysis in evidence only; remove legacy client-facing tabs."""
     workbook = load_workbook(path)
-    _write_coverage_sheet(workbook, _table(result, "analysis_coverage"))
-    _append_formula_linked_run_rate(workbook)
-    _write_additional_analysis(workbook, result)
-    workbook.save(path)
+    changed = False
+    for name in ("Analysis Coverage", "Additional Analysis"):
+        if name in workbook.sheetnames:
+            del workbook[name]
+            changed = True
+    if changed:
+        workbook.save(path)
+    else:
+        workbook.close()
 
 
 def _write_coverage_sheet(workbook, table: AnalysisTable | None) -> None:

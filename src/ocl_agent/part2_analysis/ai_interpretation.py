@@ -12,7 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from ocl_agent.schemas import AnalysisResult
+from ocl_agent.schemas import AnalysisResult, AnalysisTable, Finding
 
 
 class AnalysisInterpretationError(ValueError):
@@ -155,6 +155,46 @@ def load_analysis_interpretation(path: Path, request_path: Path) -> dict[str, An
         if priority not in {"HIGH", "MEDIUM", "LOW"}:
             raise AnalysisInterpretationError("Management question priority must be HIGH, MEDIUM or LOW.")
     return payload
+
+
+def load_analysis_result(request_path: Path) -> AnalysisResult:
+    """Rehydrate finalized deterministic analysis for checkpoint resume rendering."""
+    request = json.loads(Path(request_path).read_text(encoding="utf-8"))
+    if request.get("analysis_status") != "FINALIZED" or request.get("source_scope") != "PYTHON_ANALYSIS_ONLY":
+        raise AnalysisInterpretationError("Analysis evidence is not finalized Python analysis.")
+    evidence = request.get("evidence")
+    if not isinstance(evidence, dict) or request.get("evidence_hash") != _hash_payload(evidence):
+        raise AnalysisInterpretationError("Analysis evidence payload hash is invalid.")
+    findings = tuple(
+        Finding(
+            finding_id=str(item.get("finding_id") or ""),
+            title=str(item.get("title") or ""),
+            text=str(item.get("text") or ""),
+            evidence_references=tuple(str(value) for value in item.get("evidence_references") or ()),
+            finding_type=str(item.get("finding_type") or "OBSERVATION"),
+            metrics=dict(item.get("metrics") or {}),
+            priority=str(item.get("priority") or "MEDIUM"),
+        )
+        for item in evidence.get("deterministic_findings") or ()
+        if isinstance(item, dict)
+    )
+    tables = tuple(
+        AnalysisTable(
+            key=str(item.get("key") or ""),
+            title=str(item.get("title") or ""),
+            headers=tuple(str(value) for value in item.get("headers") or ()),
+            rows=tuple(tuple(row) for row in item.get("rows") or () if isinstance(row, list)),
+        )
+        for item in evidence.get("analysis_tables") or ()
+        if isinstance(item, dict)
+    )
+    return AnalysisResult(
+        findings,
+        tables,
+        tuple(str(value) for value in evidence.get("annual_periods") or ()),
+        tuple(str(value) for value in evidence.get("monthly_periods") or ()),
+        str(evidence.get("latest_annual_period")) if evidence.get("latest_annual_period") is not None else None,
+    )
 
 
 def _validate_item(

@@ -8,6 +8,8 @@ or materiality decisions.
 """
 from __future__ import annotations
 
+from datetime import date, datetime
+from copy import copy
 from pathlib import Path
 from typing import Iterable
 
@@ -22,6 +24,7 @@ from ocl_agent.part2_analysis.context import enrich_with_context, load_context
 from ocl_agent.part2_analysis.diagnostics import diagnostic_findings
 from ocl_agent.part2_analysis.engine import DATABOOK_PERCENT_THRESHOLD, analyse_records
 from ocl_agent.schemas import AnalysisResult, Finding, OCLRecord
+from ocl_agent.workbook_hierarchy import copy_row_outline
 
 PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 ANALYSIS_SHEETS = ("Analysis Summary", "Seasonality", "Item Monthly Charts", "Deal Issues", "Key Findings")
@@ -41,19 +44,18 @@ def run_analysis(records: Iterable[OCLRecord], databook_path: Path, *, package: 
     )
     if package is not None and handoff is not None:
         result = enrich_with_context(result, rows, load_context(package, handoff))
-    _embed_analysis(Path(databook_path), result)
+    _embed_analysis(Path(databook_path), result, handoff)
     return result
 
 
-def _embed_analysis(path: Path, result: AnalysisResult) -> None:
+def _embed_analysis(path: Path, result: AnalysisResult, handoff: SemanticHandoff | None = None) -> None:
     workbook = load_workbook(path)
     for name in ANALYSIS_SHEETS:
         if name in workbook.sheetnames:
             del workbook[name]
 
-    summary = _analysis_sheet(workbook, "Analysis Summary", "Formula-linked annual and monthly OCL review")
-    next_row = _write_formula_linked_annual(summary, workbook, 6)
-    _write_formula_linked_monthly_stats(summary, workbook, next_row + 2)
+    summary = _analysis_sheet(workbook, "Analysis Summary", "Formula-linked monthly OCL statistics")
+    _write_formula_linked_monthly_stats(summary, workbook, 6, handoff)
 
     if "Monthly Balance" in workbook.sheetnames:
         layout = _balance_layout(workbook["Monthly Balance"])
@@ -116,7 +118,7 @@ def _write_formula_linked_annual(summary, workbook, title_row: int) -> int:
     return target_row
 
 
-def _write_formula_linked_monthly_stats(summary, workbook, title_row: int) -> int:
+def _write_formula_linked_monthly_stats(summary, workbook, title_row: int, handoff: SemanticHandoff | None = None) -> int:
     if "Monthly Balance" not in workbook.sheetnames:
         return title_row
     source = workbook["Monthly Balance"]
@@ -125,24 +127,83 @@ def _write_formula_linked_monthly_stats(summary, workbook, title_row: int) -> in
         return title_row
     header_row, category_col, period_cols = layout
     summary.cell(title_row, 2, "Monthly OCL statistics by category")
-    headers = ["Category", "Average", "Minimum", "Maximum", "Std Dev", "Latest"]
-    for col, value in enumerate(headers, start=2):
-        summary.cell(title_row + 1, col, value)
-    target_row = title_row + 2
-    first_letter = get_column_letter(period_cols[0])
-    last_letter = get_column_letter(period_cols[-1])
+    blocks = _monthly_year_blocks(source, header_row, period_cols, handoff)
+    if not blocks:
+        return title_row
+    year_row = title_row + 1
+    metric_row = title_row + 2
+    summary.cell(year_row, 2, "Category")
+    summary.merge_cells(start_row=year_row, start_column=2, end_row=metric_row, end_column=2)
+    target_column = 3
+    for label, _columns in blocks:
+        summary.cell(year_row, target_column, label)
+        summary.merge_cells(start_row=year_row, start_column=target_column, end_row=year_row, end_column=target_column + 3)
+        for offset, metric in enumerate(("Average", "Minimum", "Maximum", "Latest")):
+            summary.cell(metric_row, target_column + offset, metric)
+        target_column += 4
+    target_row = title_row + 3
     for source_row in range(header_row + 1, source.max_row + 1):
         label = source.cell(source_row, category_col).value
         if label in (None, ""):
             continue
         summary.cell(target_row, 2, f"='Monthly Balance'!{get_column_letter(category_col)}{source_row}")
-        summary.cell(target_row, 3, f"=AVERAGE('Monthly Balance'!{first_letter}{source_row}:{last_letter}{source_row})")
-        summary.cell(target_row, 4, f"=MIN('Monthly Balance'!{first_letter}{source_row}:{last_letter}{source_row})")
-        summary.cell(target_row, 5, f"=MAX('Monthly Balance'!{first_letter}{source_row}:{last_letter}{source_row})")
-        summary.cell(target_row, 6, f"=STDEV.P('Monthly Balance'!{first_letter}{source_row}:{last_letter}{source_row})")
-        summary.cell(target_row, 7, f"='Monthly Balance'!{last_letter}{source_row}")
+        target_column = 3
+        for _block_label, columns in blocks:
+            first_letter = get_column_letter(columns[0])
+            last_letter = get_column_letter(columns[-1])
+            source_range = f"'Monthly Balance'!{first_letter}{source_row}:{last_letter}{source_row}"
+            summary.cell(target_row, target_column, f"=AVERAGE({source_range})")
+            summary.cell(target_row, target_column + 1, f"=MIN({source_range})")
+            summary.cell(target_row, target_column + 2, f"=MAX({source_range})")
+            summary.cell(target_row, target_column + 3, f"='Monthly Balance'!{last_letter}{source_row}")
+            target_column += 4
+        copy_row_outline(source, source_row, summary, target_row)
         target_row += 1
     return target_row
+
+
+def _monthly_year_blocks(source, header_row: int, period_cols: list[int], handoff: SemanticHandoff | None):
+    """Return up to three source-backed fiscal/calendar period blocks."""
+    column_by_text = {str(source.cell(header_row, column).value): column for column in period_cols}
+    aligned: list[tuple[str, int]] = []
+    if handoff is not None:
+        for item in handoff.monthly_to_annual:
+            column = column_by_text.get(str(item.monthly_period))
+            if column is not None:
+                aligned.append((str(item.annual_period), column))
+    if aligned:
+        aligned.sort(key=lambda item: period_cols.index(item[1]))
+        blocks = []
+        prior_index = -1
+        for label, end_column in aligned:
+            end_index = period_cols.index(end_column)
+            start_index = prior_index + 1 if prior_index >= 0 else max(0, end_index - 11)
+            columns = period_cols[start_index : end_index + 1]
+            if columns:
+                blocks.append((label, columns))
+            prior_index = end_index
+        return blocks[-3:]
+
+    by_year: dict[int, list[int]] = {}
+    for column in period_cols:
+        key = _period_date(source.cell(header_row, column).value)
+        if key is not None:
+            by_year.setdefault(key.year, []).append(column)
+    return [(str(year), by_year[year]) for year in sorted(by_year)[-3:]]
+
+
+def _period_date(value) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%b-%y", "%b-%Y", "%d-%b-%Y", "%d-%b-%y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _write_seasonality(workbook) -> None:
@@ -177,6 +238,7 @@ def _write_seasonality(workbook) -> None:
         sheet.cell(target_row, deviation_col, f'=IFERROR({get_column_letter(year_end_col)}{target_row}/{get_column_letter(avg_col)}{target_row}-1,"")')
         sheet.cell(target_row, peak_col, f"=INDEX({first_month}$7:{last_month}$7,1,MATCH(MAX({first_month}{target_row}:{last_month}{target_row}),{first_month}{target_row}:{last_month}{target_row},0))")
         sheet.cell(target_row, flag_col, f'=IF({get_column_letter(deviation_col)}{target_row}>15%,"YEAR-END SPIKE",IF({get_column_letter(deviation_col)}{target_row}<-15%,"YEAR-END DIP",""))')
+        copy_row_outline(source, source_row, sheet, target_row)
         target_row += 1
 
 
@@ -254,37 +316,39 @@ def _write_deal_issues(workbook, findings: tuple[Finding, ...]) -> None:
     sheet = workbook.create_sheet("Deal Issues")
     sheet["A1"] = PROJECT_LABEL
     sheet["A2"] = "Key deal issues this block answers"
+    if not findings:
+        sheet["A4"] = "No material deal issue identified from the available evidence"
+        sheet["A4"].font = Font(bold=True)
+        sheet["A5"] = "The deterministic analysis did not identify a material OCL deal issue from the evidence supplied."
+        return
     row = 4
     for finding in findings:
         sheet.cell(row, 1, _deal_issue_title(finding))
         sheet.cell(row, 1).font = Font(bold=True)
-        sheet.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=4)
-        sheet.cell(row + 1, 1, _so_what(finding))
-        sheet.cell(row + 2, 1, "Figure")
-        sheet.cell(row + 2, 2, _finding_formula(workbook, finding))
-        sheet.cell(row + 3, 1, f"Evidence: {finding.text}")
-        sheet.merge_cells(start_row=row + 3, start_column=1, end_row=row + 3, end_column=4)
-        row += 5
+        sheet.cell(row + 1, 1, f"FDD implication / So what: {_so_what(finding)}")
+        sheet.cell(row + 2, 1, f"Evidence: {finding.text}")
+        sheet.cell(row + 3, 1, "Evidence limitation: The deterministic evidence does not establish facts beyond the stated analysis.")
+        sheet.cell(row + 4, 1, f"Fact to establish: {_ask_management(finding)}")
+        row += 6
 
 
 def _write_key_findings(workbook, findings: tuple[Finding, ...]) -> None:
     sheet = _analysis_sheet(workbook, "Key Findings", "Material evidence-led OCL findings")
-    headers = ["ID", "Area", "Metric", "FY periods / Item", "Movement", "Magnitude", "So what", "Evidence", "Materiality", "Ask management"]
+    headers = ["ID", "FDD Lens", "Area", "Metric", "FY periods / Item", "FDD implication / So what", "Evidence", "Evidence limitation", "Fact to establish", "Materiality"]
     for col, value in enumerate(headers, start=2):
         sheet.cell(7, col, value)
     for row, finding in enumerate(findings, start=8):
-        magnitude = finding.metrics.get("change_pct") or finding.metrics.get("share_pct") or finding.metrics.get("coefficient_of_variation") or ""
         values = [
             finding.finding_id,
             _theme_for_finding(finding),
+            _theme_for_finding(finding),
             finding.finding_type,
             ", ".join(finding.evidence_references),
-            _finding_formula(workbook, finding),
-            magnitude,
             _so_what(finding),
             finding.text,
-            str(finding.metrics.get("materiality") or "MATERIAL"),
+            "The deterministic evidence does not establish facts beyond the stated analysis.",
             _ask_management(finding),
+            str(finding.metrics.get("materiality") or "MATERIAL"),
         ]
         for col, value in enumerate(values, start=2):
             sheet.cell(row, col, value)
@@ -444,7 +508,7 @@ def _ask_management(finding: Finding) -> str:
 def _finish_sheet(sheet) -> None:
     sheet.sheet_view.showGridLines = False
     sheet.freeze_panes = "B8" if sheet.title not in {"Deal Issues"} else "A4"
-    sheet.column_dimensions["A"].width = 5 if sheet.title != "Deal Issues" else 28
+    sheet.column_dimensions["A"].width = 5 if sheet.title != "Deal Issues" else 90
     for column in range(2, sheet.max_column + 1):
         width = 14
         for row in range(1, min(sheet.max_row, 150) + 1):
@@ -452,3 +516,26 @@ def _finish_sheet(sheet) -> None:
             if value is not None:
                 width = max(width, min(55, len(str(value)) + 2))
         sheet.column_dimensions[get_column_letter(column)].width = width
+    if sheet.title == "Deal Issues":
+        for row in sheet.iter_rows():
+            alignment = copy(row[0].alignment)
+            alignment.wrap_text = True
+            alignment.vertical = "top"
+            row[0].alignment = alignment
+    elif sheet.title in {"Key Findings", "Q&A"}:
+        headers = {str(sheet.cell(7, column).value): column for column in range(1, sheet.max_column + 1)}
+        narrative = {
+            "FDD implication / So what", "Evidence", "Evidence limitation", "Fact to establish",
+            "Question", "Why it matters", "Evidence trigger",
+        }
+        for header in narrative:
+            column = headers.get(header)
+            if not column:
+                continue
+            sheet.column_dimensions[get_column_letter(column)].width = 50
+            for row in range(8, sheet.max_row + 1):
+                cell = sheet.cell(row, column)
+                alignment = copy(cell.alignment)
+                alignment.wrap_text = True
+                alignment.vertical = "top"
+                cell.alignment = alignment

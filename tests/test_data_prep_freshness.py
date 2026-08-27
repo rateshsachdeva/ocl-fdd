@@ -291,12 +291,14 @@ def test_source_change_removes_old_principal_deliverables(tmp_path: Path):
     (runtime_work / "final_qa.json").write_text("{}", encoding="utf-8")
     (output / "OCL_Databook.xlsx").write_bytes(b"old workbook")
     (output / "OCL_Report.pptx").write_bytes(b"old report")
+    (output / "OCL_Databook_v1.xlsx").write_bytes(b"historical workbook")
 
     _activate_source_package(runtime_work, output, "NEW")
 
     assert not (output / "OCL_Databook.xlsx").exists()
     assert not (output / "OCL_Report.pptx").exists()
     assert not (runtime_work / "final_qa.json").exists()
+    assert (output / "OCL_Databook_v1.xlsx").read_bytes() == b"historical workbook"
     marker = json.loads((runtime_work / "active_source_package.json").read_text(encoding="utf-8"))
     assert marker == {"source_fingerprint": "NEW", "status": "IN_PROGRESS"}
 

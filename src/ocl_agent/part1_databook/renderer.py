@@ -21,6 +21,7 @@ from ocl_agent.part1_databook.input_contract import StandardizedPackage
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.part1_databook.workbook_blueprint import WorkbookBlueprint
 from ocl_agent.schemas import ControlResult, OCLRecord, Scope
+from ocl_agent.workbook_hierarchy import apply_collapsed_detail_group, ordered_hierarchy
 
 EXCEL_MAX_DATA_ROWS = 1_048_575
 PROJECT_LABEL = "TargetCo - Other Current Liabilities"
@@ -53,9 +54,9 @@ def render_workbook(blueprint: WorkbookBlueprint, records: Iterable[OCLRecord], 
         monthly_rows = tuple(row for row in rows if row.dimensions.get("record_usage") == "MONTHLY_RECORDS")
         _write_flat(monthly_sheet, monthly_rows, source_sheet_by_file, source_headers_by_file, handoff)
     if "balance_by_category" in sheet_map:
-        _write_balance(sheet_map["balance_by_category"], blueprint, monthly=False)
+        _write_balance(sheet_map["balance_by_category"], blueprint, rows, monthly=False)
     if "monthly_balance" in sheet_map:
-        _write_balance(sheet_map["monthly_balance"], blueprint, monthly=True)
+        _write_balance(sheet_map["monthly_balance"], blueprint, rows, monthly=True)
     if "checks" in sheet_map:
         _write_checks(sheet_map["checks"], checks, flat_sheet)
     if "mapping" in sheet_map:
@@ -151,7 +152,7 @@ def _source_headers(package: StandardizedPackage) -> dict[str, list[str]]:
     return result
 
 
-def _write_balance(sheet, blueprint: WorkbookBlueprint, *, monthly: bool) -> None:
+def _write_balance(sheet, blueprint: WorkbookBlueprint, rows: tuple[OCLRecord, ...], *, monthly: bool) -> None:
     periods = blueprint.monthly_periods if monthly else blueprint.periods
     usage = "MONTHLY_RECORDS" if monthly else "OCL_RECORDS"
     flat_sheet = "Monthly Flat" if monthly else "Flat File"
@@ -161,31 +162,42 @@ def _write_balance(sheet, blueprint: WorkbookBlueprint, *, monthly: bool) -> Non
     for column, value in enumerate(("Category", *periods), start=2):
         sheet.cell(7, column, value)
     rows_for_total: list[int] = []
-    child_set = {child for children in blueprint.hierarchy.values() for child in children}
+    latest_period = periods[-1] if periods else None
+    latest_values: dict[str, Decimal] = {}
+    for record in rows:
+        if (
+            record.period == latest_period
+            and record.dimensions.get("record_usage") == usage
+            and record.judgment.scope == Scope.IN_SCOPE
+            and record.judgment.category
+        ):
+            category = str(record.judgment.category)
+            latest_values[category] = latest_values.get(category, Decimal("0")) + record.amount
     current_row = 8
-    for parent, children in blueprint.hierarchy.items():
-        child_rows: list[int] = []
-        for child in children:
+    for entry in ordered_hierarchy(blueprint.categories, blueprint.hierarchy, latest_values):
+        if entry.kind == "parent":
+            parent_row = current_row
+            sheet.cell(parent_row, 2, entry.label)
+            current_row += 1
+            child_rows: list[int] = []
+            for child in entry.children:
+                sheet.cell(current_row, 2, child)
+                for column, period in enumerate(periods, start=3):
+                    sheet.cell(current_row, column, _sumifs_formula(flat_sheet, child, period, usage))
+                child_rows.append(current_row)
+                rows_for_total.append(current_row)
+                current_row += 1
+            for column in range(3, 3 + len(periods)):
+                letter = get_column_letter(column)
+                sheet.cell(parent_row, column, f"=SUM({letter}{child_rows[0]}:{letter}{child_rows[-1]})")
+            apply_collapsed_detail_group(sheet, parent_row, child_rows[0], child_rows[-1])
+        else:
+            child = entry.label
             sheet.cell(current_row, 2, child)
             for column, period in enumerate(periods, start=3):
                 sheet.cell(current_row, column, _sumifs_formula(flat_sheet, child, period, usage))
-            child_rows.append(current_row)
             rows_for_total.append(current_row)
             current_row += 1
-        if child_rows:
-            sheet.cell(current_row, 2, parent)
-            for column in range(3, 3 + len(periods)):
-                letter = get_column_letter(column)
-                sheet.cell(current_row, column, f"=SUM({letter}{child_rows[0]}:{letter}{child_rows[-1]})")
-            current_row += 1
-    for category in blueprint.categories:
-        if category in child_set or category in blueprint.hierarchy:
-            continue
-        sheet.cell(current_row, 2, category)
-        for column, period in enumerate(periods, start=3):
-            sheet.cell(current_row, column, _sumifs_formula(flat_sheet, category, period, usage))
-        rows_for_total.append(current_row)
-        current_row += 1
     if rows_for_total:
         sheet.cell(current_row, 2, "Total OCL")
         for column in range(3, 3 + len(periods)):

@@ -7,7 +7,7 @@ The user experience is one repository and one launcher:
 ```text
 references/source/
   -> python run_all.py
-  -> output/OCL_Databook_vN.xlsx + output/OCL_Report_vN.pptx
+  -> output/OCL_Databook_vN.xlsx
 ```
 
 Raw Excel interpretation belongs to the full `fdd-data-preparation` workflow. `ocl_agent` starts only from its published standardized package. Never add client-specific raw-Excel parsing to `ocl_agent`.
@@ -23,7 +23,7 @@ raw client files
     -> deterministic Python validation/reshape/lineage/publication
     -> deterministic OCL scope/mapping/controls/databook/analysis tables
     -> AI_HOST WRITE_FDD_PARTNER_ANALYSIS
-    -> deterministic Excel/PPT rendering + final QA + versioned publication
+    -> deterministic final Excel presentation + final QA + versioned publication
 ```
 
 For the canonical integrated standardized publication, Python carries the already-established dataset/field semantics into OCL deterministically. Do not ask AI to reinterpret the same standardized package a second time.
@@ -92,7 +92,7 @@ formula-linked foundation
     -> Python metrics / materiality / reconciliations
     -> AI_HOST FDD-partner interpretation
     -> Deal Issues + Key Findings + Q&A
-    -> deterministic workbook/PPT rendering
+    -> deterministic final workbook rendering
 ```
 
 For `WRITE_FDD_PARTNER_ANALYSIS`, follow `src/ocl_agent/llm/FDD_PARTNER_ANALYSIS.md`.
@@ -116,4 +116,5 @@ Management questions must ask for factual evidence or operational explanations. 
 - Applicable hard controls must pass before final publication.
 - Unsupported controls are explicit `NOT_APPLICABLE`; unresolved evidence is not silently guessed.
 - Canonical semantics may be carried forward deterministically only from the standardized publication; arbitrary raw headings must never be reinterpreted by OCL Python.
-- The final Excel databook is the principal deliverable; the PowerPoint is secondary and uses the same reconciled evidence.
+- The final Excel databook is the only active MVP deliverable. Reusable report code may remain but is disconnected from normal execution.
+- Working workbooks and checkpoints belong under `work/ocl_runtime/<package_id>/`; human-reviewable support workbooks belong under `output/support working/`; only immutable `OCL_Databook_vN.xlsx` files belong in the output root.

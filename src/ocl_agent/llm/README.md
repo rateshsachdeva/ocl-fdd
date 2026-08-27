@@ -41,7 +41,7 @@ The AI host may interpret:
 - recurrence/persistence and normalization reference calculations;
 - movement-based utilisation/release/reversal analysis where explicit movements exist;
 - context ratios where the semantic handoff explicitly binds the relevant context;
-- final workbook/PPT rendering and QA.
+- final workbook rendering and QA. Reusable PowerPoint code is not part of the active MVP workflow.
 
 ## Coordination rule
 

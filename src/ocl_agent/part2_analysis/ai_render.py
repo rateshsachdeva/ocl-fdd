@@ -11,7 +11,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles import Font
 
-from ocl_agent.part2_analysis.run import PROJECT_LABEL, _analysis_sheet, _finding_formula, _finish_sheet
+from ocl_agent.part2_analysis.run import PROJECT_LABEL, _analysis_sheet, _finish_sheet
 from ocl_agent.schemas import AnalysisResult, ManagementQuestion
 
 
@@ -45,25 +45,19 @@ def _write_deal_issues(workbook, finding_by_id: dict, interpretation: dict) -> N
     if not issues:
         sheet["A4"] = "No material deal issue identified from the available evidence"
         sheet["A4"].font = Font(bold=True)
-        sheet.merge_cells("A5:D5")
         sheet["A5"] = str(interpretation.get("overall_assessment") or "")
         return
 
     row = 4
     for issue in issues:
-        linked = finding_by_id.get(str(issue.get("linked_finding_id") or ""))
         priority = str(issue.get("priority") or "MEDIUM").upper()
         lens = str(issue.get("fdd_lens") or "")
         sheet.cell(row, 1, f"{priority} | {issue['title']} | {lens}")
         sheet.cell(row, 1).font = Font(bold=True)
-        sheet.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=4)
-        sheet.cell(row + 1, 1, issue["so_what"])
-        sheet.cell(row + 2, 1, "Figure")
-        sheet.cell(row + 2, 2, _finding_formula(workbook, linked) if linked else "")
-        sheet.cell(row + 3, 1, f"Evidence: {issue['evidence']} | Evidence limitation: {issue['evidence_limit']}")
-        sheet.merge_cells(start_row=row + 3, start_column=1, end_row=row + 3, end_column=4)
+        sheet.cell(row + 1, 1, f"FDD implication / So what: {issue['so_what']}")
+        sheet.cell(row + 2, 1, f"Evidence: {issue['evidence']}")
+        sheet.cell(row + 3, 1, f"Evidence limitation: {issue['evidence_limit']}")
         sheet.cell(row + 4, 1, f"Fact to establish: {issue['management_focus']}")
-        sheet.merge_cells(start_row=row + 4, start_column=1, end_row=row + 4, end_column=4)
         row += 6
 
 
@@ -75,42 +69,27 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
         "Area",
         "Metric",
         "FY periods / Item",
-        "Movement",
-        "Magnitude",
         "FDD implication / So what",
         "Evidence",
         "Evidence limitation",
         "Fact to establish",
         "Materiality",
-        "Ask management",
     ]
     for col, value in enumerate(headers, start=2):
         sheet.cell(7, col, value)
 
     for row, item in enumerate(interpretation.get("key_findings") or [], start=8):
-        linked = finding_by_id.get(str(item.get("linked_finding_id") or ""))
-        magnitude = ""
-        if linked is not None:
-            magnitude = (
-                linked.metrics.get("change_pct")
-                or linked.metrics.get("share_pct")
-                or linked.metrics.get("coefficient_of_variation")
-                or ""
-            )
         values = [
             item["id"],
             item["fdd_lens"],
             item["area"],
             item["metric"],
             item["period_item"],
-            _finding_formula(workbook, linked) if linked else "",
-            magnitude,
             item["so_what"],
             item["evidence"],
             item["evidence_limit"],
             item["fact_to_establish"],
             item["materiality"],
-            item.get("ask_management") or "",
         ]
         for col, value in enumerate(values, start=2):
             sheet.cell(row, col, value)
@@ -118,7 +97,7 @@ def _write_key_findings(workbook, finding_by_id: dict, interpretation: dict) -> 
 
 def _write_qanda(workbook, interpretation: dict) -> tuple[ManagementQuestion, ...]:
     sheet = _analysis_sheet(workbook, "Q&A", "FDD partner questions arising only from finalized Python OCL analysis")
-    headers = ["#", "FDD Lens", "Theme", "Question", "Why it matters", "Evidence trigger", "Management response"]
+    headers = ["#", "FDD Lens", "Theme", "Question", "Why it matters", "Evidence trigger", "Management Response"]
     for col, value in enumerate(headers, start=2):
         sheet.cell(7, col, value)
 

@@ -34,15 +34,21 @@ MEDIUM_BLUE = Side(style="medium", color=KPMG_BLUE)
 
 FRONT_ORDER = [
     "Deal Issues", "Key Findings", "Q&A", "Checks", "Balance by Category",
-    "Roll-forward", "Seasonality", "Item Monthly Charts", "Analysis Summary",
-    "Analysis Coverage", "Additional Analysis",
+    "Monthly Balance", "Roll-forward", "Seasonality", "Item Monthly Charts", "Analysis Summary",
 ]
-SUPPORT_ORDER = ["Flat File", "Movements", "TB", "Monthly Flat", "Monthly Balance", "Mapping", "UNMAPPED", "SCOPE_EXCLUDED"]
+SUPPORT_ORDER = ["Flat File", "Movements", "TB", "Monthly Flat", "Mapping", "UNMAPPED", "SCOPE_EXCLUDED"]
 
 
 def apply_workbook_style(path: Path) -> Path:
     path = Path(path)
     workbook = load_workbook(path)
+    style_workbook(workbook)
+    workbook.save(path)
+    return path
+
+
+def style_workbook(workbook) -> None:
+    """Apply the style contract to an already-open workbook."""
     for sheet in workbook.worksheets:
         _base_sheet(sheet)
         if sheet.title.startswith("SRC_"):
@@ -73,8 +79,6 @@ def apply_workbook_style(path: Path) -> Path:
         workbook.calculation.forceFullCalc = True
     except AttributeError:
         pass
-    workbook.save(path)
-    return path
 
 
 def _base_sheet(sheet) -> None:
@@ -203,21 +207,27 @@ def _rollforward_sheet(sheet) -> None:
     max_row = sheet.max_row
     max_col = sheet.max_column
     sheet.sheet_properties.tabColor = KPMG_BLUE
-    header_row = _find_header(sheet, "Category") or 1
-    if header_row == 1:
-        _header_row(sheet, 1, blue=True)
-        sheet.freeze_panes = "A2"
-    else:
-        _title(sheet)
-        _section_row(sheet, header_row - 1, 2, max_col)
-        _header_row(sheet, header_row, 2, max_col)
-        sheet.freeze_panes = f"B{header_row + 1}"
-    for row in range(header_row + 1, max_row + 1):
-        for col in range(2, max_col + 1):
+    _title(sheet)
+    sheet.column_dimensions["A"].width = 5
+    sheet.freeze_panes = "C8"
+    for row in range(6, max_row + 1):
+        label = sheet.cell(row, 2).value
+        if label in (None, ""):
+            continue
+        other_values = [sheet.cell(row, col).value for col in range(3, max_col + 1)]
+        if all(value in (None, "") for value in other_values):
+            _section_row(sheet, row, 2, max_col)
+            if row + 1 <= max_row:
+                _header_row(sheet, row + 1, 2, max_col)
+            continue
+        for col in range(3, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.startswith("=")):
                 cell.number_format = ACCOUNTING
-    _reasonable_widths(sheet, 24)
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+    sheet.column_dimensions["B"].width = 22
+    for col in range(3, max_col + 1):
+        sheet.column_dimensions[get_column_letter(col)].width = 13
 
 
 def _checks_sheet(sheet) -> None:
@@ -304,11 +314,16 @@ def _analysis_sheet(sheet) -> None:
         if row + 1 <= max_row:
             _section_row(sheet, row, 2, max_col)
             _header_row(sheet, row + 1, 2, max_col)
-    if sheet.title in {"Key Findings", "Q&A", "Analysis Summary", "Seasonality", "Item Monthly Charts", "Analysis Coverage"}:
+    if sheet.title in {"Key Findings", "Q&A", "Analysis Summary", "Seasonality", "Item Monthly Charts"}:
         _section_row(sheet, 6, 2, max_col)
         _header_row(sheet, 7, 2, max_col)
-    for row in range(8, max_row + 1):
-        wrap = sheet.title in {"Key Findings", "Q&A", "Analysis Coverage"}
+    data_start = 8
+    if sheet.title == "Analysis Summary" and any(sheet.merged_cells.ranges):
+        _header_row(sheet, 8, 2, max_col)
+        data_start = 9
+        sheet.freeze_panes = "B9"
+    for row in range(data_start, max_row + 1):
+        wrap = sheet.title in {"Key Findings", "Q&A"}
         for col in range(2, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, str) and cell.value.startswith("="):
@@ -316,7 +331,8 @@ def _analysis_sheet(sheet) -> None:
             numeric = _numeric_like(cell)
             cell.alignment = Alignment(vertical="top" if wrap else "center", horizontal="right" if numeric else "left", wrap_text=wrap)
             if numeric:
-                if "%" in str(sheet.cell(7, col).value or "") or "Magnitude" == str(sheet.cell(7, col).value or ""):
+                header = str(sheet.cell(7, col).value or sheet.cell(8, col).value or "")
+                if "%" in header or header == "YE vs Avg":
                     cell.number_format = PERCENT
                 else:
                     cell.number_format = ACCOUNTING
@@ -325,31 +341,27 @@ def _analysis_sheet(sheet) -> None:
     headers = _headers(sheet, 7)
     flag_col = headers.get("Flag") or headers.get("Review Flag")
     if flag_col:
-        for row in range(8, max_row + 1):
+        for row in range(data_start, max_row + 1):
             if sheet.cell(row, flag_col).value not in (None, ""):
                 sheet.cell(row, flag_col).fill = PatternFill("solid", fgColor=AMBER)
     _analysis_widths(sheet)
+    if sheet.title in {"Seasonality", "Analysis Summary"}:
+        _style_analysis_hierarchy(sheet, data_start, max_row, max_col)
 
 
 def _deal_issues_sheet(sheet) -> None:
     _title(sheet)
     sheet.sheet_properties.tabColor = KPMG_BLUE
     sheet.freeze_panes = "A4"
-    for row in range(4, sheet.max_row + 1):
+    max_row = sheet.max_row
+    for row in range(1, max_row + 1):
         first = sheet.cell(row, 1)
-        if first.value and row % 5 == 4:
+        first.alignment = Alignment(vertical="top", wrap_text=True)
+        if first.value and row >= 4 and (row - 4) % 6 == 0:
             first.font = Font(name="Arial", size=8, bold=True, color=BLACK)
-        if row % 5 == 0:
-            first.alignment = Alignment(vertical="top", wrap_text=True)
-            sheet.row_dimensions[row].height = 42
-        if row % 5 == 1 and sheet.cell(row, 2).value not in (None, ""):
-            sheet.cell(row, 1).font = Font(name="Arial", size=8, color=NOTE_GREY)
-            sheet.cell(row, 2).font = Font(name="Arial", size=8, bold=True, color=LINK_GREEN if isinstance(sheet.cell(row, 2).value, str) and "!" in sheet.cell(row, 2).value else BLACK)
-            sheet.cell(row, 2).number_format = ACCOUNTING
-    sheet.column_dimensions["A"].width = 34
-    sheet.column_dimensions["B"].width = 20
-    sheet.column_dimensions["C"].width = 18
-    sheet.column_dimensions["D"].width = 18
+        if first.value and row >= 4:
+            sheet.row_dimensions[row].height = max(15, min(90, 15 * (len(str(first.value)) // 100 + 1)))
+    sheet.column_dimensions["A"].width = 90
 
 
 def _generic_sheet(sheet) -> None:
@@ -406,13 +418,31 @@ def _analysis_widths(sheet) -> None:
     for col in range(2, sheet.max_column + 1):
         header = str(sheet.cell(7, col).value or "")
         width = 14
-        if header in {"So what", "Evidence", "Ask management", "Question", "Management response", "Limitation / Interpretation"}:
-            width = 42
+        if header in {"FDD implication / So what", "Evidence", "Evidence limitation", "Fact to establish", "Question", "Why it matters", "Evidence trigger"}:
+            width = 50
         elif header in {"Theme", "Area", "Metric", "FY periods / Item"}:
             width = 22
         elif header in {"Category", "Analysis"}:
             width = 28
         sheet.column_dimensions[get_column_letter(col)].width = width
+
+
+def _style_analysis_hierarchy(sheet, data_start: int, max_row: int, max_col: int) -> None:
+    for row in range(data_start, max_row + 1):
+        label = str(sheet.cell(row, 2).value or "")
+        dimension = sheet.row_dimensions[row]
+        is_total = label.casefold() == "total ocl" or "'!B" in label and row == max_row
+        if is_total:
+            for col in range(2, max_col + 1):
+                cell = sheet.cell(row, col)
+                cell.fill = PatternFill("solid", fgColor=GRAND_TOTAL)
+                cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
+                cell.border = Border(top=MEDIUM_BLUE, bottom=MEDIUM_BLUE)
+        elif dimension.collapsed:
+            for col in range(2, max_col + 1):
+                sheet.cell(row, col).font = Font(name="Arial", size=8, bold=True, color=BLACK)
+        elif dimension.outlineLevel:
+            sheet.cell(row, 2).alignment = Alignment(indent=1, vertical="center")
 
 
 def _reasonable_widths(sheet, max_width: int = 40) -> None:

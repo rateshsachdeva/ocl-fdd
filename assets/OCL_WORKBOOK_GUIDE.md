@@ -23,10 +23,11 @@ Front review tabs, when present:
 3. `Q&A`
 4. `Checks`
 5. `Balance by Category`
-6. `Roll-forward`
-7. `Seasonality`
-8. `Item Monthly Charts`
-9. `Analysis Summary` may follow as a supporting review tab.
+6. `Monthly Balance`
+7. `Roll-forward`
+8. `Seasonality`
+9. `Item Monthly Charts`
+10. `Analysis Summary`
 
 Then foundation and support tabs:
 
@@ -34,7 +35,6 @@ Then foundation and support tabs:
 - `Movements` when present
 - `TB` when present
 - `Monthly Flat`
-- `Monthly Balance`
 - `Mapping`
 - `UNMAPPED`
 - `SCOPE_EXCLUDED`
@@ -113,8 +113,9 @@ For analytical review tabs:
 - Period columns follow dynamically from available data; do not force fixed FY labels.
 - Where exact/source-backed period ends are known, annual and monthly period headings display as `mmmyy` (for example `Dec24`).
 - Child/category rows are indented.
-- Parent/family subtotal rows are bold with a top border when they add useful information.
-- Do not show a parent subtotal when it is purely duplicative, including a one-child subtotal or the sole parent subtotal that would equal `Total OCL`.
+- Parent/family subtotal rows are visible, bold and followed by their child/detail rows.
+- Sort top-level economic groups from highest to lowest using the latest displayed period. Preserve the source-driven order of children within each group.
+- Keep every detail row physically present. Use Excel row outlines, with child rows grouped beneath the parent and collapsed/hidden by default so users can expand them with the outline controls.
 - `Total OCL` remains the final visible total row and is bold with light-grey `#E5E5E5` fill and strong borders.
 - `UNMAPPED` remains separately visible; never hide it inside mapped subtotals.
 - Numeric columns align right and display in black font.
@@ -123,8 +124,10 @@ For analytical review tabs:
 
 - Use standard analysis layout.
 - Build only for movement data that actually exists.
-- Opening / movement / closing logic remains deterministic and source-backed.
-- Calculated closing and difference remain visible or available for controls; never solve a break with a plug.
+- Render one separate table for each dynamic reviewed in-scope category, with actual movement periods across columns in `mmmyy` format.
+- Each table contains exactly `Opening`, `Net movement`, `Closing` and `Calculated closing` analytical rows.
+- Visible values are formulas linked to the deterministic `Movements` support schedule. The first opening links to source opening; each later opening references the prior displayed closing; calculated closing equals opening plus net movement.
+- The deterministic control remains independent of this display schedule; never solve a break with a plug.
 
 ## Checks
 
@@ -142,6 +145,8 @@ For analytical review tabs:
 - Compare year-end with trailing 12-month average.
 - `YE vs Avg` is year-end / average less 1.
 - Peak month is based on the maximum monthly balance.
+- The analytical columns after the monthly values are `12M Average`, `Year End`, `YE vs Avg`, `Peak Month` and `Flag`; `YE vs Avg` uses percentage format.
+- Preserve the Balance by Category hierarchy and collapsed detail outline, including identical `Total OCL` presentation.
 - Flag `YEAR-END SPIKE` above +15% and `YEAR-END DIP` below -15%; otherwise blank.
 - Nonblank flags receive amber review formatting.
 
@@ -161,26 +166,37 @@ For analytical review tabs:
 ## Deal Issues
 
 - Blue tab.
-- Plain-English issue blocks.
-- Each issue includes a bold title, explanatory narrative, figure label and live formula-backed figure.
-- Figure values are formulas where source-backed linkage exists.
+- All visible narrative is in column A; do not merge cells or display a separate figure row.
+- Column A is width 90 and wrapped. Each issue is a vertical title, implication, evidence, evidence limitation and fact-to-establish block, followed by a blank row.
+- Deterministic figures and evidence references remain in the analysis artifacts even though the separate workbook figure line is omitted.
 
 ## Key Findings
 
 - Standard analysis layout.
-- Visible columns include ID, area/theme, metric, periods/item, movement/figure, magnitude, so-what, evidence, materiality and management ask.
-- Formula-backed amount columns use financial format and black font.
-- Long narrative fields wrap.
+- Visible columns are ID, FDD Lens, Area, Metric, FY periods / Item, FDD implication / So what, Evidence, Evidence limitation, Fact to establish and Materiality.
+- The four narrative columns use width 50, wrap and top alignment. Generic width logic must not overwrite these widths.
 - Findings remain evidence-led; no speculative explanation may be presented as fact.
 
 ## Q&A
 
 - Standard analysis layout.
-- Visible headers: `#`, `Theme`, `Question`, `Evidence`, `Management response`.
+- The Question, Why it matters and Evidence trigger columns use width 50, wrap and top alignment; Management Response remains blank and available for user input.
 - Questions are sequentially numbered.
 - Theme, question, evidence and response columns wrap.
 - Management response is blank for user input.
 - Questions must arise from material evidence/findings, not filler.
+
+## Analysis Summary
+
+- Display formula-linked monthly OCL statistics only; do not render the annual balance recap or year-end build/reference table on this sheet.
+- Use up to the latest three supported fiscal/calendar years. Prefer confirmed `monthly_to_annual` year ends where available and do not create placeholder years.
+- Under each year repeat `Average`, `Minimum`, `Maximum` and `Latest`; all four are formulas linked to Monthly Balance and use financial number formats.
+- Preserve hierarchy, subtotals, collapsed detail and the Total OCL treatment. `Std Dev` is not displayed.
+
+## Internal analysis evidence
+
+- Analysis coverage and extended analyses remain in `analysis_evidence.json` for validation and AI interpretation.
+- Do not render client-facing `Analysis Coverage` or `Additional Analysis` worksheets; delete legacy copies during rerendering.
 
 ## Mapping / exception tabs
 
