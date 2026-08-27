@@ -75,9 +75,17 @@ def checkpoint_matches(checkpoint: dict[str, Any], expected: dict[str, Any]) -> 
     """Validate input identity and every referenced artifact by content hash."""
     if not checkpoint:
         return False, "checkpoint is missing or invalid"
-    for key in ("package_id", "source_fingerprint", "package_fingerprint", "semantic_handoff_hash", "judgment_config_hash"):
+    for key in ("package_id", "package_fingerprint", "semantic_handoff_hash", "judgment_config_hash"):
         if checkpoint.get(key) != expected.get(key):
             return False, f"{key} changed"
+    # The default bridge knows the raw-source fingerprint, while an explicitly
+    # supplied standardized package may not publish it in its manifest. Treat
+    # the source fingerprint as an additional check when both invocations know
+    # it; exact package bytes remain mandatory in every invocation mode.
+    checkpoint_source = checkpoint.get("source_fingerprint")
+    expected_source = expected.get("source_fingerprint")
+    if checkpoint_source is not None and expected_source is not None and checkpoint_source != expected_source:
+        return False, "source_fingerprint changed"
     workbook = Path(str(checkpoint.get("working_databook_path") or ""))
     if not workbook.is_file():
         return False, "working databook is missing"

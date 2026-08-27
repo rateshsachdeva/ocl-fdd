@@ -108,7 +108,11 @@ def run_end_to_end(
     timings["data_prep_package_loading"] = time.perf_counter() - package_started
 
     checkpoint = load_checkpoint(checkpoint_path)
-    resumable, _resume_reason = checkpoint_matches(checkpoint, identity)
+    resumable, resume_reason = checkpoint_matches(checkpoint, identity)
+    if resumable:
+        print(f"Checkpoint resume: ACCEPTED — {checkpoint.get('completed_stage')}", flush=True)
+    else:
+        print(f"Checkpoint resume: REJECTED — {resume_reason}", flush=True)
     if resumable and checkpoint.get("completed_stage") == "READY":
         published = Path(checkpoint["published_databook_path"])
         return EndToEndResult(
