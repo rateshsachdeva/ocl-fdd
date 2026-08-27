@@ -7,10 +7,10 @@ bounded input review; reviewed user configuration remains authoritative.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ocl_agent.part1_databook.input_contract import DatasetProfile, StandardizedPackage
 
@@ -53,6 +53,10 @@ class DatasetBinding:
     fields: FieldBinding
     dimensions: tuple[str, ...] = ()
     notes: str = ""
+    usage_filters: dict[DatasetUsage, dict[str, tuple[str, ...]]] = field(default_factory=dict)
+
+    def filters_for(self, usage: DatasetUsage) -> dict[str, tuple[str, ...]]:
+        return self.usage_filters.get(usage, {})
 
 @dataclass(frozen=True)
 class PeriodAlignment:
@@ -118,6 +122,7 @@ def write_semantic_handoff_draft(
             "usages": [],
             "fields": fields,
             "dimensions": [],
+            "usage_filters": {},
             "available_columns": list(profile.columns),
             "row_count": profile.row_count,
             "notes": "AI host: assign usages and confirm field roles from upstream metadata and current source evidence.",
@@ -216,7 +221,8 @@ def load_semantic_handoff(
                 raise SemanticHandoffError(
                     f"Dataset {filename!r} is used for movements but is missing roles: {', '.join(missing_roles)}"
                 )
-        bindings.append(DatasetBinding(filename, usages, fields, dimensions, str(item.get("notes", ""))))
+        usage_filters = _parse_usage_filters(filename, item.get("usage_filters", {}), usages, available)
+        bindings.append(DatasetBinding(filename, usages, fields, dimensions, str(item.get("notes", "")), usage_filters))
 
     alignments: list[PeriodAlignment] = []
     seen_annual: set[str] = set()
@@ -299,3 +305,71 @@ def _clean_optional(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def row_matches_usage_filter(
+    row: Mapping[str, Any],
+    binding: DatasetBinding,
+    usage: DatasetUsage,
+) -> bool:
+    """Return whether a standardized row matches one usage's exact-value filters."""
+    return all(row.get(column) in allowed for column, allowed in binding.filters_for(usage).items())
+
+
+def _parse_usage_filters(
+    filename: str,
+    raw_usage_filters: Any,
+    usages: tuple[DatasetUsage, ...],
+    available_columns: set[str],
+) -> dict[DatasetUsage, dict[str, tuple[str, ...]]]:
+    if not isinstance(raw_usage_filters, dict):
+        raise SemanticHandoffError(f"Dataset {filename!r}: usage_filters must be an object.")
+    if raw_usage_filters and DatasetUsage.IGNORE in usages:
+        raise SemanticHandoffError(f"Dataset {filename!r}: IGNORE cannot have usage filters.")
+
+    normalized: dict[DatasetUsage, dict[str, tuple[str, ...]]] = {}
+    for raw_usage, raw_filters in raw_usage_filters.items():
+        try:
+            usage = DatasetUsage(str(raw_usage).upper())
+        except ValueError as error:
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: usage_filters contains an unsupported usage {raw_usage!r}."
+            ) from error
+        if usage not in usages:
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: filter usage {usage.value!r} is not present in dataset usages."
+            )
+        if usage == DatasetUsage.IGNORE:
+            raise SemanticHandoffError(f"Dataset {filename!r}: IGNORE cannot have usage filters.")
+        if not isinstance(raw_filters, dict):
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: filters for usage {usage.value!r} must be an object."
+            )
+        if not raw_filters:
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: filters for usage {usage.value!r} contain no columns."
+            )
+
+        filters: dict[str, tuple[str, ...]] = {}
+        for raw_column, raw_values in raw_filters.items():
+            column = str(raw_column)
+            if column not in available_columns:
+                raise SemanticHandoffError(
+                    f"Dataset {filename!r}: usage filter references missing column {column!r}."
+                )
+            if isinstance(raw_values, str):
+                values = (raw_values,)
+            elif isinstance(raw_values, list) and all(isinstance(value, str) for value in raw_values):
+                values = tuple(raw_values)
+            else:
+                raise SemanticHandoffError(
+                    f"Dataset {filename!r}: filter values for {usage.value!r}/{column!r} "
+                    "must be a string or list of strings."
+                )
+            if not values:
+                raise SemanticHandoffError(
+                    f"Dataset {filename!r}: filter {usage.value!r}/{column!r} has no values."
+                )
+            filters[column] = values
+        normalized[usage] = filters
+    return normalized

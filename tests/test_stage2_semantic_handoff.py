@@ -25,8 +25,11 @@ def _package(tmp_path: Path, rows=None):
     return root
 
 
-def _handoff(path: Path):
-    path.write_text(json.dumps({'handoff_version':'1.0','status':'CONFIRMED','package_id':'RUN_1','datasets':[{'file':'records.csv','usages':['OCL_RECORDS'],'fields':{'source_record_id':'Source_Record_ID','period':'Period','amount':'Amount','source_label':'Account','entity':'Entity'},'dimensions':[],'notes':'confirmed'}],'unresolved_matters':[]}),encoding='utf-8')
+def _handoff(path: Path, *, usage_filters=None):
+    dataset = {'file':'records.csv','usages':['OCL_RECORDS'],'fields':{'source_record_id':'Source_Record_ID','period':'Period','amount':'Amount','source_label':'Account','entity':'Entity'},'dimensions':[],'notes':'confirmed'}
+    if usage_filters is not None:
+        dataset['usage_filters'] = usage_filters
+    path.write_text(json.dumps({'handoff_version':'1.0','status':'CONFIRMED','package_id':'RUN_1','datasets':[dataset],'unresolved_matters':[]}),encoding='utf-8')
 
 
 def _config(path: Path):
@@ -64,6 +67,43 @@ def test_handoff_is_bound_to_current_package_and_columns(tmp_path):
     payload=json.loads(handoff.read_text()); payload['package_id']='OLD_RUN'; handoff.write_text(json.dumps(payload))
     with pytest.raises(SemanticHandoffError,match='belongs to package'):
         load_semantic_handoff(handoff,package,profiles)
+
+
+def test_handoff_without_usage_filters_is_backward_compatible(tmp_path):
+    package=discover_standardized_package(_package(tmp_path)); profiles=profile_package(package); handoff=tmp_path/'semantic.json'; _handoff(handoff)
+    parsed=load_semantic_handoff(handoff,package,profiles)
+    assert parsed.record_bindings()[0].usage_filters == {}
+
+
+@pytest.mark.parametrize(
+    ("usage_filters", "message"),
+    [
+        ({"OCL_RECORDS": {"Missing_Column": ["Closing Balance"]}}, "missing column"),
+        ({"MONTHLY_RECORDS": {"Period": ["FY24"]}}, "not present in dataset usages"),
+        ({"OCL_RECORDS": {"Period": []}}, "has no values"),
+        ({"UNSUPPORTED": {"Period": ["FY24"]}}, "unsupported usage"),
+    ],
+)
+def test_invalid_usage_filters_are_rejected(tmp_path, usage_filters, message):
+    package=discover_standardized_package(_package(tmp_path)); profiles=profile_package(package); handoff=tmp_path/'semantic.json'; _handoff(handoff,usage_filters=usage_filters)
+    with pytest.raises(SemanticHandoffError,match=message):
+        load_semantic_handoff(handoff,package,profiles)
+
+
+def test_record_usage_filter_excludes_nonmatching_rows_without_build_errors(tmp_path):
+    rows = [
+        {'Source_Record_ID':'1','Account':'Accrued payroll','Period':'FY24','Amount':'100','Entity':'A','Balance_Type':'Closing Balance'},
+        {'Source_Record_ID':'2','Account':'Accrued payroll','Period':'FY24','Amount':'abc','Entity':'A','Balance_Type':'Prior Year Balance'},
+        {'Source_Record_ID':'3','Account':'Accrued payroll','Period':'FY23','Amount':'90','Entity':'A','Balance_Type':'Prior Year Balance'},
+    ]
+    package=discover_standardized_package(_package(tmp_path,rows)); profiles=profile_package(package); config=tmp_path/'config'; _config(config)
+    _handoff(config/'semantic_handoff.json',usage_filters={'OCL_RECORDS':{'Balance_Type':'Closing Balance'}})
+    semantic=load_semantic_handoff(config/'semantic_handoff.json',package,profiles)
+    result=build_ocl_records(package,semantic,load_judgments(config))
+    assert [row.source.source_record_id for row in result.records] == ['1']
+    assert result.issues == ()
+    assert result.input_rows_by_dataset == {'records.csv':3}
+    assert result.excluded_rows_by_dataset == {'records.csv':2}
 
 
 def test_record_build_preserves_lineage_and_surfaces_invalid_rows(tmp_path):

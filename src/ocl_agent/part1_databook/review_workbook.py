@@ -62,10 +62,10 @@ def write_semantic_review(package: StandardizedPackage, profiles: tuple[DatasetP
 def _write_dataset_summary(workbook: Workbook, profiles: tuple[DatasetProfile, ...], handoff: SemanticHandoff, build: RecordBuildResult) -> None:
     bindings = {item.file: item for item in handoff.datasets}
     sheet = workbook.create_sheet("Input_Datasets")
-    sheet.append(["Dataset_File", "Rows", "Columns", "Usages", "Rows_Read_For_OCL", "Package_ID"])
+    sheet.append(["Dataset_File", "Rows", "Columns", "Usages", "Rows_Read_For_OCL", "Rows_Excluded_By_Usage_Filter", "Package_ID"])
     for profile in profiles:
         binding = bindings.get(profile.path.name)
-        sheet.append([profile.path.name, profile.row_count, len(profile.columns), ", ".join(item.value for item in binding.usages) if binding else "UNBOUND", build.input_rows_by_dataset.get(profile.path.name, 0), handoff.package_id])
+        sheet.append([profile.path.name, profile.row_count, len(profile.columns), ", ".join(item.value for item in binding.usages) if binding else "UNBOUND", build.input_rows_by_dataset.get(profile.path.name, 0), build.excluded_rows_by_dataset.get(profile.path.name, 0), handoff.package_id])
     _finish_sheet(sheet)
 
 
@@ -135,8 +135,9 @@ def _write_checks(workbook: Workbook, build: RecordBuildResult, controls: tuple[
     sheet = workbook.create_sheet("Checks")
     sheet.append(["Check", "Status", "Actual", "Expected", "Message"])
     input_rows = sum(build.input_rows_by_dataset.values())
-    accounted = len(build.records) + len(build.issues)
-    sheet.append(["record_row_coverage", "PASS" if accounted == input_rows else "FAIL", accounted, input_rows, "Every row read for OCL records must either become an OCLRecord or appear in Unresolved_Items."])
+    excluded_rows = sum(build.excluded_rows_by_dataset.values())
+    accounted = len(build.records) + len(build.issues) + excluded_rows
+    sheet.append(["record_row_coverage", "PASS" if accounted == input_rows else "FAIL", accounted, input_rows, "Every row read for OCL records must become an OCLRecord, appear in Unresolved_Items, or be explicitly excluded by its usage filter."])
     ids = [row.source.source_record_id for row in build.records]
     duplicate_count = len(ids) - len(set(ids))
     sheet.append(["source_record_id_uniqueness", "PASS" if duplicate_count == 0 else "REVIEW_REQUIRED", duplicate_count, 0, "Duplicate Source_Record_ID values require review; no rows are dropped."])

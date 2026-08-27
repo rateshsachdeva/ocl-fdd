@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 from ocl_agent.part1_databook.input_contract import StandardizedPackage
-from ocl_agent.part1_databook.semantic_handoff import DatasetUsage, SemanticHandoff
+from ocl_agent.part1_databook.semantic_handoff import DatasetUsage, SemanticHandoff, row_matches_usage_filter
 from ocl_agent.schemas import AnalysisResult, AnalysisTable, OCLRecord, Scope
 
 
@@ -37,6 +37,8 @@ def load_context(package: StandardizedPackage, handoff: SemanticHandoff) -> dict
                 except InvalidOperation:
                     continue
                 for usage in matched:
+                    if not row_matches_usage_filter(row, binding, usage):
+                        continue
                     key = usage_keys[usage]
                     bucket = result.setdefault(key, {})
                     bucket[period] = bucket.get(period, Decimal("0")) + amount

@@ -15,8 +15,9 @@ from ocl_agent.schemas import CheckStatus, ControlResult, OCLRecord, Scope
 def build_core_controls(records: tuple[OCLRecord, ...], build: RecordBuildResult, handoff: SemanticHandoff, judgment_issues: tuple[JudgmentIssue, ...], package: StandardizedPackage | None = None, *, movement_control: ControlResult | None = None, continuity_control: ControlResult | None = None) -> tuple[ControlResult, ...]:
     controls: list[ControlResult] = [category_sum_control(records)]
     input_rows = sum(build.input_rows_by_dataset.values())
-    accounted = len(build.records) + len(build.issues)
-    controls.append(reconcile_amounts("chk_record_coverage", Decimal(accounted), Decimal(input_rows), message="Every selected standardized row becomes an OCL record or a visible build issue."))
+    excluded_rows = sum(build.excluded_rows_by_dataset.values())
+    accounted = len(build.records) + len(build.issues) + excluded_rows
+    controls.append(reconcile_amounts("chk_record_coverage", Decimal(accounted), Decimal(input_rows), message="Every standardized row read for a record usage becomes an OCL record, a visible build issue, or an explicit usage-filter exclusion."))
 
     usages = {usage for dataset in handoff.datasets for usage in dataset.usages}
     control_by_id = {item.control_id: item for item in handoff.controls}

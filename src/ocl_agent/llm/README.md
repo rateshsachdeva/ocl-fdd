@@ -89,6 +89,17 @@ Movement records also require `movement_type`. Use exact source movement values 
 
 Context datasets require explicit `period` and `amount` bindings. `EXPENSE_CONTEXT` should be used only when the published dataset is genuinely a relevant P&L/expense measure; do not repurpose revenue, payroll or a generic numeric column as an expense denominator.
 
+When one standardized dataset contains multiple semantic populations, use optional per-usage exact-value filters:
+
+```json
+"usage_filters": {
+  "REVENUE_CONTEXT": {"Measure": ["Revenue"]},
+  "EXPENSE_CONTEXT": {"Measure": ["Energy", "Freight"]}
+}
+```
+
+Each filter usage must also appear in that dataset's `usages`. Filters are exact source values, and each referenced column must exist in the standardized dataset. A shared long-form dataset may therefore support several context usages without mixing their rows. Use the same mechanism to select a source-backed record population when a record dataset contains multiple measure types. Do not use `usage_filters` for source-backed controls; control bindings retain their separate `filters` contract.
+
 Bind TB/scope controls only to exact published datasets/fields/filters that the evidence supports. Do not keyword-search for a convenient total and call it a control.
 
 Use upstream Dataset Map / metadata as strong evidence. Never infer field meaning from a heading alone when samples, context, lineage or upstream interpretation are available.

@@ -139,14 +139,16 @@ def _source_sheet(sheet) -> None:
 
 
 def _flat_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     _title(sheet, 1, None)
-    _header_row(sheet, 2)
+    _header_row(sheet, 2, end_col=max_col)
     sheet.freeze_panes = "A3"
     sheet.sheet_properties.tabColor = KPMG_BLUE
     headers = _headers(sheet, 2)
     amount_col = headers.get("Amount")
-    for row in range(3, sheet.max_row + 1):
-        for col in range(1, sheet.max_column + 1):
+    for row in range(3, max_row + 1):
+        for col in range(1, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, str) and cell.value.startswith("="):
                 cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK)
@@ -160,42 +162,46 @@ def _flat_sheet(sheet) -> None:
 
 
 def _balance_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     _title(sheet)
     sheet.column_dimensions["A"].width = 5
-    _section_row(sheet, 6, 2, sheet.max_column)
-    _header_row(sheet, 7, 2, sheet.max_column)
+    _section_row(sheet, 6, 2, max_col)
+    _header_row(sheet, 7, 2, max_col)
     sheet.freeze_panes = "B8"
     sheet.sheet_properties.tabColor = KPMG_BLUE
-    for row in range(8, sheet.max_row + 1):
+    for row in range(8, max_row + 1):
         label = str(sheet.cell(row, 2).value or "")
-        formula_cells = [sheet.cell(row, col) for col in range(3, sheet.max_column + 1) if isinstance(sheet.cell(row, col).value, str) and sheet.cell(row, col).value.startswith("=")]
+        formula_cells = [sheet.cell(row, col) for col in range(3, max_col + 1) if isinstance(sheet.cell(row, col).value, str) and sheet.cell(row, col).value.startswith("=")]
         is_total = label.casefold() in {"total ocl", "total mapped ocl", "total"}
         is_parent = bool(formula_cells) and any(str(cell.value).upper().startswith("=SUM(") for cell in formula_cells) and not is_total
         if is_total:
-            for col in range(2, sheet.max_column + 1):
+            for col in range(2, max_col + 1):
                 cell = sheet.cell(row, col)
                 cell.fill = PatternFill("solid", fgColor=GRAND_TOTAL)
                 cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
                 cell.border = Border(top=MEDIUM_BLUE, bottom=MEDIUM_BLUE)
         elif is_parent:
-            for col in range(2, sheet.max_column + 1):
+            for col in range(2, max_col + 1):
                 cell = sheet.cell(row, col)
                 cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
                 cell.border = Border(top=THIN_GREY)
         else:
             sheet.cell(row, 2).alignment = Alignment(indent=1, vertical="center")
-        for col in range(3, sheet.max_column + 1):
+        for col in range(3, max_col + 1):
             cell = sheet.cell(row, col)
             cell.number_format = ACCOUNTING
             cell.alignment = Alignment(horizontal="right", vertical="center")
             if isinstance(cell.value, str) and cell.value.startswith("="):
                 cell.font = Font(name="Arial", size=8, bold=is_parent or is_total, color=LINK_GREEN if "!" in cell.value else BLACK)
     sheet.column_dimensions["B"].width = 30
-    for col in range(3, sheet.max_column + 1):
+    for col in range(3, max_col + 1):
         sheet.column_dimensions[get_column_letter(col)].width = 13
 
 
 def _rollforward_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     sheet.sheet_properties.tabColor = KPMG_BLUE
     header_row = _find_header(sheet, "Category") or 1
     if header_row == 1:
@@ -203,11 +209,11 @@ def _rollforward_sheet(sheet) -> None:
         sheet.freeze_panes = "A2"
     else:
         _title(sheet)
-        _section_row(sheet, header_row - 1, 2, sheet.max_column)
-        _header_row(sheet, header_row, 2, sheet.max_column)
+        _section_row(sheet, header_row - 1, 2, max_col)
+        _header_row(sheet, header_row, 2, max_col)
         sheet.freeze_panes = f"B{header_row + 1}"
-    for row in range(header_row + 1, sheet.max_row + 1):
-        for col in range(2, sheet.max_column + 1):
+    for row in range(header_row + 1, max_row + 1):
+        for col in range(2, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.startswith("=")):
                 cell.number_format = ACCOUNTING
@@ -235,32 +241,36 @@ def _checks_sheet(sheet) -> None:
 
 
 def _mapping_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     _title(sheet, 1, None)
-    _header_row(sheet, 2)
+    _header_row(sheet, 2, end_col=max_col)
     sheet.freeze_panes = "A3"
     headers = _headers(sheet, 2)
-    for row in range(3, sheet.max_row + 1):
-        for col in range(1, sheet.max_column + 1):
+    for row in range(3, max_row + 1):
+        for col in range(1, max_col + 1):
             sheet.cell(row, col).font = Font(name="Arial", size=8, color=INPUT_BLUE)
         status_col = headers.get("Review_Status")
         if status_col and str(sheet.cell(row, status_col).value or "").upper() != "REVIEWED":
-            for col in range(1, sheet.max_column + 1):
+            for col in range(1, max_col + 1):
                 sheet.cell(row, col).fill = PatternFill("solid", fgColor=AMBER)
     _reasonable_widths(sheet, 36)
     _set_width(sheet, headers.get("Reason"), 55)
 
 
 def _unmapped_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     _title(sheet, 1, 2)
     sheet.cell(2, 1).font = Font(name="Arial", size=8, color=NOTE_GREY)
-    _header_row(sheet, 3)
+    _header_row(sheet, 3, end_col=max_col)
     sheet.freeze_panes = "A4"
     sheet.sheet_properties.tabColor = "C65911"
     headers = _headers(sheet, 3)
     amount_col = headers.get("Amount")
     source_col = headers.get("Source_Dataset")
-    for row in range(4, sheet.max_row + 1):
-        for col in range(1, sheet.max_column + 1):
+    for row in range(4, max_row + 1):
+        for col in range(1, max_col + 1):
             cell = sheet.cell(row, col)
             cell.fill = PatternFill("solid", fgColor=AMBER)
             cell.font = Font(name="Arial", size=8, color=NOTE_GREY if col == source_col else BLACK)
@@ -283,21 +293,23 @@ def _scope_excluded_sheet(sheet) -> None:
 
 
 def _analysis_sheet(sheet) -> None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     _title(sheet)
     sheet.column_dimensions["A"].width = 5
     sheet.sheet_properties.tabColor = KPMG_BLUE
     sheet.freeze_panes = "B8"
-    section_rows = [row for row in range(3, sheet.max_row + 1) if sheet.cell(row, 2).value not in (None, "") and all(sheet.cell(row, col).value in (None, "") for col in range(3, min(sheet.max_column, 8) + 1))]
+    section_rows = [row for row in range(3, max_row + 1) if sheet.cell(row, 2).value not in (None, "") and all(sheet.cell(row, col).value in (None, "") for col in range(3, min(max_col, 8) + 1))]
     for row in section_rows:
-        if row + 1 <= sheet.max_row:
-            _section_row(sheet, row, 2, sheet.max_column)
-            _header_row(sheet, row + 1, 2, sheet.max_column)
+        if row + 1 <= max_row:
+            _section_row(sheet, row, 2, max_col)
+            _header_row(sheet, row + 1, 2, max_col)
     if sheet.title in {"Key Findings", "Q&A", "Analysis Summary", "Seasonality", "Item Monthly Charts", "Analysis Coverage"}:
-        _section_row(sheet, 6, 2, sheet.max_column)
-        _header_row(sheet, 7, 2, sheet.max_column)
-    for row in range(8, sheet.max_row + 1):
+        _section_row(sheet, 6, 2, max_col)
+        _header_row(sheet, 7, 2, max_col)
+    for row in range(8, max_row + 1):
         wrap = sheet.title in {"Key Findings", "Q&A", "Analysis Coverage"}
-        for col in range(2, sheet.max_column + 1):
+        for col in range(2, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, str) and cell.value.startswith("="):
                 cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK)
@@ -309,11 +321,11 @@ def _analysis_sheet(sheet) -> None:
                 else:
                     cell.number_format = ACCOUNTING
         if wrap:
-            sheet.row_dimensions[row].height = min(120, max(24, 12 + 12 * max(1, _wrapped_lines(sheet, row))))
+            sheet.row_dimensions[row].height = min(120, max(24, 12 + 12 * max(1, _wrapped_lines(sheet, row, max_col))))
     headers = _headers(sheet, 7)
     flag_col = headers.get("Flag") or headers.get("Review Flag")
     if flag_col:
-        for row in range(8, sheet.max_row + 1):
+        for row in range(8, max_row + 1):
             if sheet.cell(row, flag_col).value not in (None, ""):
                 sheet.cell(row, flag_col).fill = PatternFill("solid", fgColor=AMBER)
     _analysis_widths(sheet)
@@ -366,9 +378,11 @@ def _headers(sheet, row: int) -> dict[str, int]:
 
 
 def _find_header(sheet, value: str) -> int | None:
+    max_row = sheet.max_row
+    max_col = sheet.max_column
     wanted = value.casefold()
-    for row in range(1, min(sheet.max_row, 12) + 1):
-        for col in range(1, min(sheet.max_column, 6) + 1):
+    for row in range(1, min(max_row, 12) + 1):
+        for col in range(1, min(max_col, 6) + 1):
             if str(sheet.cell(row, col).value or "").strip().casefold() == wanted:
                 return row
     return None
@@ -380,9 +394,9 @@ def _numeric_like(cell) -> bool:
     return cell.column > 2 and isinstance(cell.value, str) and cell.value.startswith("=")
 
 
-def _wrapped_lines(sheet, row: int) -> int:
+def _wrapped_lines(sheet, row: int, max_col: int) -> int:
     total = 1
-    for col in range(2, sheet.max_column + 1):
+    for col in range(2, max_col + 1):
         text = str(sheet.cell(row, col).value or "")
         total = max(total, max(1, len(text) // 55 + 1))
     return total
@@ -402,9 +416,11 @@ def _analysis_widths(sheet) -> None:
 
 
 def _reasonable_widths(sheet, max_width: int = 40) -> None:
-    for col in range(1, sheet.max_column + 1):
+    max_row = sheet.max_row
+    max_col = sheet.max_column
+    for col in range(1, max_col + 1):
         width = 10
-        for row in range(1, min(sheet.max_row, 120) + 1):
+        for row in range(1, min(max_row, 120) + 1):
             value = sheet.cell(row, col).value
             if value is not None:
                 width = max(width, min(max_width, len(str(value)) + 2))

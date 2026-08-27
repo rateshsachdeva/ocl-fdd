@@ -44,3 +44,45 @@ def test_optional_context_adds_ratios_and_missing_context_does_not_block(tmp_pat
     assert table.rows[0][5] == 40.0
     assert table.rows[0][7] == 25.0
     assert enrich_with_context(base, [record], {}) == base
+
+
+def test_shared_context_dataset_applies_filters_independently_per_usage(tmp_path: Path):
+    _write(
+        tmp_path / "operating_context.csv",
+        ["Period", "Operating_Metric", "Amount"],
+        [
+            ["FY25", "Revenue", "1000"],
+            ["FY25", "Shipments", "999999"],
+            ["FY25", "Energy Expense", "100"],
+            ["FY25", "Maintenance Expense", "200"],
+            ["FY25", "Freight Expense", "300"],
+            ["FY25", "Payroll Expense", "500"],
+        ],
+    )
+    package = StandardizedPackage(tmp_path, (tmp_path / "operating_context.csv",), None, None, None, None)
+    handoff = SemanticHandoff("1.0", "CONFIRMED", "x", (
+        DatasetBinding(
+            "operating_context.csv",
+            (
+                DatasetUsage.REVENUE_CONTEXT,
+                DatasetUsage.PAYROLL_CONTEXT,
+                DatasetUsage.EXPENSE_CONTEXT,
+            ),
+            FieldBinding(period="Period", amount="Amount"),
+            usage_filters={
+                DatasetUsage.REVENUE_CONTEXT: {"Operating_Metric": ("Revenue",)},
+                DatasetUsage.PAYROLL_CONTEXT: {"Operating_Metric": ("Payroll Expense",)},
+                DatasetUsage.EXPENSE_CONTEXT: {
+                    "Operating_Metric": ("Energy Expense", "Maintenance Expense", "Freight Expense")
+                },
+            },
+        ),
+    ))
+
+    context = load_context(package, handoff)
+
+    assert context == {
+        "revenue": {"FY25": Decimal("1000")},
+        "payroll": {"FY25": Decimal("500")},
+        "expense": {"FY25": Decimal("600")},
+    }
