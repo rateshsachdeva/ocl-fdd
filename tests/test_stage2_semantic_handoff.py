@@ -120,7 +120,11 @@ def test_semantic_review_has_required_review_sheets(tmp_path):
     package=discover_standardized_package(_package(tmp_path)); profiles=profile_package(package); config=tmp_path/'config'; _config(config); _handoff(config/'semantic_handoff.json')
     semantic=load_semantic_handoff(config/'semantic_handoff.json',package,profiles); build=build_ocl_records(package,semantic,load_judgments(config))
     workbook=load_workbook(write_semantic_review(package,profiles,semantic,build,tmp_path/'review.xlsx'),data_only=False)
-    assert workbook.sheetnames==['Input_Datasets','Semantic_Handoff','OCL_Scope_Review','Mapping_Review','WC_Debt_Review','Unresolved_Items','Checks']
+    assert workbook.sheetnames==['Input_Datasets','Semantic_Handoff','Economic_Judgment_Review','OCL_Scope_Review','Mapping_Review','WC_Debt_Review','Unresolved_Items','Checks']
+    economic = workbook['Economic_Judgment_Review']
+    headers = [cell.value for cell in economic[1]]
+    assert headers[:7] == ['Source_Label','Source_Code','Recommended_Config_Entity','Represented_Entities','Represented_Datasets','Represented_Record_Usages','Technical_Key_Count']
+    assert economic['A2'].value == 'Accrued payroll'
     checks={row[0].value:row[1].value for row in workbook['Checks'].iter_rows(min_row=2)}
     assert checks['record_row_coverage']=='PASS' and checks['semantic_build_issues']=='REVIEW_REQUIRED'
 

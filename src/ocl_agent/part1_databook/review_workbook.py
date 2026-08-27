@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 
 from ocl_agent.part1_databook.input_contract import DatasetProfile, StandardizedPackage
 from ocl_agent.part1_databook.record_builder import RecordBuildResult
+from ocl_agent.part1_databook.review_context import build_economic_review_items
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.schemas import ControlResult, OCLRecord
 
@@ -51,6 +52,7 @@ def write_semantic_review(package: StandardizedPackage, profiles: tuple[DatasetP
     workbook = _new_workbook()
     _write_dataset_summary(workbook, profiles, handoff, build)
     _write_handoff(workbook, handoff)
+    _write_economic_judgment_review(workbook, build.records)
     _write_scope_review(workbook, build.records)
     _write_mapping_review(workbook, build.records)
     _write_wc_review(workbook, build.records)
@@ -76,6 +78,68 @@ def _write_handoff(workbook: Workbook, handoff: SemanticHandoff) -> None:
         fields = item.fields
         sheet.append([item.file, ", ".join(value.value for value in item.usages), fields.source_record_id, fields.period, fields.amount, fields.source_label, fields.source_code, fields.entity, fields.currency, fields.movement_type, ", ".join(item.dimensions), item.notes])
     _finish_sheet(sheet)
+
+
+def _write_economic_judgment_review(workbook: Workbook, records: tuple[OCLRecord, ...]) -> None:
+    sheet = workbook.create_sheet("Economic_Judgment_Review")
+    sheet.append(
+        [
+            "Source_Label",
+            "Source_Code",
+            "Recommended_Config_Entity",
+            "Represented_Entities",
+            "Represented_Datasets",
+            "Represented_Record_Usages",
+            "Technical_Key_Count",
+            "Current_Scope",
+            "Category",
+            "Parent_Category",
+            "Management_View",
+            "FDD_View",
+            "Normality",
+            "Review_Status",
+            "Grouping_Status",
+            "Grouping_Reason",
+            "Evidence_By_Dataset_Usage",
+        ]
+    )
+    for item in build_economic_review_items(records):
+        judgment = item.get("current_judgment") or {}
+        conflicting = item.get("judgment_consistency") == "CONFLICTING"
+        sheet.append(
+            [
+                item["source_label"],
+                item["source_code"],
+                item["recommended_config_entity"],
+                ", ".join(item["represented_entities"]),
+                ", ".join(item["represented_datasets"]),
+                ", ".join(item["represented_record_usages"]),
+                item["technical_key_count"],
+                "MULTIPLE" if conflicting else judgment.get("scope"),
+                "MULTIPLE" if conflicting else judgment.get("category"),
+                "MULTIPLE" if conflicting else judgment.get("parent_category"),
+                "MULTIPLE" if conflicting else judgment.get("management_view"),
+                "MULTIPLE" if conflicting else judgment.get("fdd_view"),
+                "MULTIPLE" if conflicting else judgment.get("normality"),
+                "MULTIPLE" if conflicting else judgment.get("review_status"),
+                item["grouping_status"],
+                item["grouping_reason"],
+                _economic_evidence_summary(item["period_amounts"]),
+            ]
+        )
+    _finish_sheet(sheet)
+
+
+def _economic_evidence_summary(period_amounts: list[dict[str, object]]) -> str:
+    summaries = []
+    for representation in period_amounts:
+        dataset = representation.get("dataset_file") or "UNKNOWN_DATASET"
+        usage = representation.get("record_usage") or "UNKNOWN_USAGE"
+        entity = representation.get("entity") or "blank entity"
+        amounts = representation.get("period_amounts") or {}
+        period_text = ", ".join(f"{period}={amount}" for period, amount in amounts.items())
+        summaries.append(f"{dataset} [{usage}; {entity}]: {period_text}")
+    return " | ".join(summaries)
 
 
 def _label_period_matrix(records: tuple[OCLRecord, ...]):

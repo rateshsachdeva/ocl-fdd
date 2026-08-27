@@ -117,6 +117,12 @@ Scope, category/hierarchy, WC/debt-like and normality are reviewable financial-d
 
 A `HUMAN` checkpoint is intentional where reviewed judgment is required.
 
+When `OCL_Review_Context.json` contains `economic_review_items`, use those items
+as the primary human/AI reasoning view. They consolidate only safe duplicate
+technical representations at normalized source-code + source-label grain while
+retaining dataset- and usage-specific evidence. Keep `review_items` as the
+technical audit view, and do not merge entity-specific or ambiguous groups.
+
 ## Evidence-aware analysis coverage
 
 The workbook contains an `Analysis Coverage` view so the deal team can distinguish what the supplied evidence genuinely supports.
