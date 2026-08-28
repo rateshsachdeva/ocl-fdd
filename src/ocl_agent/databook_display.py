@@ -10,18 +10,15 @@ import calendar
 import re
 from copy import copy
 from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.chart.legend import Legend
 from openpyxl.chart.series import SeriesLabel
-from openpyxl.styles import Font, PatternFill
 from ocl_agent.workbook_hierarchy import apply_collapsed_detail_group
 
 BLACK = "000000"
-GRAND_TOTAL = "E5E5E5"
 PERIOD_FORMAT = "mmmyy"
 FORMULA_SUM_RANGE = re.compile(r"^=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)$", re.IGNORECASE)
 
@@ -40,8 +37,6 @@ def apply_display_preferences_to_workbook(workbook, handoff: Any | None = None) 
     annual_alignment = _annual_alignment(handoff)
 
     for sheet in workbook.worksheets:
-        _hide_gridlines(sheet)
-        _black_financial_numbers(sheet)
         _format_period_headers(sheet, annual_alignment)
 
     for name in ("Balance by Category", "Monthly Balance", "Seasonality", "Analysis Summary"):
@@ -49,37 +44,9 @@ def apply_display_preferences_to_workbook(workbook, handoff: Any | None = None) 
             continue
         sheet = workbook[name]
         _ensure_outline_groups(sheet)
-        _format_total_ocl(sheet)
 
     if "Item Monthly Charts" in workbook.sheetnames:
         _format_monthly_charts(workbook["Item Monthly Charts"])
-
-
-
-def _hide_gridlines(sheet) -> None:
-    sheet.sheet_view.showGridLines = False
-    sheet.print_options.gridLines = False
-    try:
-        sheet.print_options.gridLinesSet = True
-    except AttributeError:
-        pass
-
-
-def _black_financial_numbers(sheet) -> None:
-    """Keep model/display numbers black; protected SRC hardcodes may remain blue."""
-    source_sheet = sheet.title.startswith("SRC_")
-    for row in sheet.iter_rows():
-        for cell in row:
-            value = cell.value
-            is_formula = isinstance(value, str) and value.startswith("=")
-            is_numeric = isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
-            is_date_value = isinstance(value, (date, datetime))
-            if not is_formula and (source_sheet or not (is_numeric or is_date_value)):
-                continue
-            font = copy(cell.font)
-            font.color = BLACK
-            cell.font = font
-
 
 def _annual_alignment(handoff: Any | None) -> dict[str, str]:
     result: dict[str, str] = {}
@@ -207,18 +174,3 @@ def _ensure_outline_groups(sheet) -> None:
         range_rows = _subtotal_range(sheet, row, first_value_col)
         if range_rows is not None and range_rows[0] > row:
             apply_collapsed_detail_group(sheet, row, range_rows[0], range_rows[1])
-
-
-def _format_total_ocl(sheet) -> None:
-    layout = _find_category_layout(sheet)
-    if layout is None:
-        return
-    _header_row, category_col, total_row = layout
-    fill = PatternFill("solid", fgColor=GRAND_TOTAL)
-    for column in range(category_col, sheet.max_column + 1):
-        cell = sheet.cell(total_row, column)
-        cell.fill = fill
-        font = copy(cell.font)
-        font.bold = True
-        font.color = BLACK
-        cell.font = font

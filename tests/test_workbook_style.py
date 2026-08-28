@@ -6,7 +6,15 @@ import pytest
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from ocl_agent.workbook_style import _analysis_sheet, _flat_sheet
+from ocl_agent import workbook_style
+from ocl_agent.databook_display import apply_display_preferences_to_workbook
+from ocl_agent.workbook_style import (
+    _analysis_sheet,
+    _base_sheet,
+    _flat_sheet,
+    _reasonable_widths,
+    style_generated_support_cell,
+)
 
 
 def _flat_sheet_with_rows(row_count: int) -> Worksheet:
@@ -70,3 +78,72 @@ def test_dimension_property_reads_do_not_scale_with_data_rows(monkeypatch, style
     assert reads[id(large_sheet)] == reads[id(small_sheet)]
     assert 0 < reads[id(large_sheet)]["max_row"] <= 3
     assert 0 < reads[id(large_sheet)]["max_column"] <= 4
+
+
+def test_base_sheet_does_not_traverse_cells(monkeypatch) -> None:
+    sheet = _flat_sheet_with_rows(500)
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("_base_sheet must not traverse worksheet cells")
+
+    monkeypatch.setattr(sheet, "iter_rows", fail)
+    _base_sheet(sheet)
+
+    assert sheet.sheet_view.showGridLines is False
+    assert sheet.print_options.gridLines is False
+
+
+def test_preformatted_large_flat_sheet_skips_compatibility_repaint(monkeypatch) -> None:
+    sheet = _flat_sheet_with_rows(250)
+    for row in range(3, sheet.max_row + 1):
+        for col in range(1, sheet.max_column + 1):
+            style_generated_support_cell(sheet.cell(row, col), role="linked", accounting=col == 5)
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("preformatted generated support body must not be repainted")
+
+    monkeypatch.setattr(workbook_style, "style_generated_support_cell", fail)
+    _flat_sheet(sheet)
+
+
+def test_large_sheet_width_sampling_is_bounded(monkeypatch) -> None:
+    sheet = Workbook().active
+    sheet.cell(1, 1, "Header")
+    sheet.cell(10000, 1, "Tail value")
+    original_cell = sheet.cell
+    rows_read: list[int] = []
+
+    def counted_cell(row: int, column: int, *args, **kwargs):
+        rows_read.append(row)
+        return original_cell(row, column, *args, **kwargs)
+
+    monkeypatch.setattr(sheet, "cell", counted_cell)
+    _reasonable_widths(sheet)
+
+    assert rows_read
+    assert max(rows_read) <= workbook_style.WIDTH_SAMPLE_ROWS
+    assert len(rows_read) == workbook_style.WIDTH_SAMPLE_ROWS
+
+
+def test_display_preferences_do_not_add_second_full_sheet_traversal(monkeypatch) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Movements"
+    sheet.cell(10000, 9, "=G10000*H10000")
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("display preferences must not traverse every worksheet cell")
+
+    monkeypatch.setattr(Worksheet, "iter_rows", fail)
+    apply_display_preferences_to_workbook(workbook, {})
+
+
+def test_generated_support_cells_reuse_common_style_components() -> None:
+    sheet = Workbook().active
+    first = sheet.cell(1, 1, "A")
+    second = sheet.cell(2, 1, "B")
+
+    style_generated_support_cell(first, role="model")
+    style_generated_support_cell(second, role="model")
+
+    assert first._style == second._style

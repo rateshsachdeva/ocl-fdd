@@ -22,6 +22,7 @@ from ocl_agent.part1_databook.judgments import JudgmentStore
 from ocl_agent.part1_databook.reconciliation import DEFAULT_TOLERANCE
 from ocl_agent.part1_databook.semantic_handoff import DatasetUsage, SemanticHandoff
 from ocl_agent.schemas import CheckStatus, ControlResult, MovementRecord, OCLRecord, ReviewStatus, Scope, SourceReference
+from ocl_agent.workbook_style import style_generated_support_cell
 
 ALLOWED_ROLES = {"OPENING", "FLOW", "CLOSING"}
 PROJECT_LABEL = "TargetCo - Other Current Liabilities"
@@ -164,8 +165,10 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
             movement.multiplier,
         ]
         for column, value in enumerate(values, start=1):
-            support.cell(support_row, column, value)
-        support.cell(support_row, 9, f"=G{support_row}*H{support_row}")
+            cell = support.cell(support_row, column, value)
+            style_generated_support_cell(cell, role="model")
+        signed_amount = support.cell(support_row, 9, f"=G{support_row}*H{support_row}")
+        style_generated_support_cell(signed_amount, role="model")
         support_row += 1
     support.freeze_panes = "A2"
     support.sheet_view.showGridLines = False

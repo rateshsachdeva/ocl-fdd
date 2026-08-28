@@ -22,6 +22,7 @@ from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.part1_databook.workbook_blueprint import WorkbookBlueprint
 from ocl_agent.schemas import ControlResult, OCLRecord, Scope
 from ocl_agent.workbook_hierarchy import apply_collapsed_detail_group, ordered_hierarchy
+from ocl_agent.workbook_style import style_generated_support_cell
 
 EXCEL_MAX_DATA_ROWS = 1_048_575
 PROJECT_LABEL = "TargetCo - Other Current Liabilities"
@@ -113,6 +114,11 @@ def _write_source_copies(sheet_map, blueprint: WorkbookBlueprint, package: Stand
                         cell.value = value
                         if isinstance(value, str) and value.startswith("="):
                             cell.data_type = "s"
+                    style_generated_support_cell(
+                        cell,
+                        role="source",
+                        accounting=bool(amount_index is not None and column - 1 == amount_index and cell.value not in (None, "")),
+                    )
         sheet.protection.sheet = True
 
 
@@ -122,6 +128,8 @@ def _write_flat(sheet, rows: tuple[OCLRecord, ...], source_sheet_by_file: dict[s
     sheet.append([sheet.title])
     sheet.append([*CORE_FLAT_COLUMNS, *dynamic_dimensions])
     amount_column_by_file = {binding.file: binding.fields.amount for binding in handoff.record_bindings()} if handoff else {}
+    output_row = 3
+    amount_column = CORE_FLAT_COLUMNS.index("Amount") + 1
     for row in rows:
         dataset = str(row.dimensions.get("dataset_file") or "")
         source_tab = None
@@ -142,6 +150,13 @@ def _write_flat(sheet, rows: tuple[OCLRecord, ...], source_sheet_by_file: dict[s
         values = [dataset, row.source.source_record_id, row.source.source_file, source_tab, source_cell, row.source.source_sheet, entity, row.period, row.dimensions.get("record_usage"), judgment.parent_category, judgment.category, row.source_label, source_code, amount_value, judgment.scope.value, judgment.management_view, judgment.fdd_view, judgment.normality, judgment.review_status.value, _judgment_key(entity, source_code, row.source_label)]
         values.extend(row.dimensions.get(key) for key in dynamic_dimensions)
         sheet.append(values)
+        for column in range(1, len(values) + 1):
+            style_generated_support_cell(
+                sheet.cell(output_row, column),
+                role="linked",
+                accounting=column == amount_column,
+            )
+        output_row += 1
 
 
 def _source_headers(package: StandardizedPackage) -> dict[str, list[str]]:

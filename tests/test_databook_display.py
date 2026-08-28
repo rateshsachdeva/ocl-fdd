@@ -7,6 +7,7 @@ from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Font
 
 from ocl_agent.databook_display import apply_databook_display_preferences
+from ocl_agent.workbook_style import apply_workbook_style
 
 
 def _handoff():
@@ -49,6 +50,7 @@ def test_display_preferences_black_dates_no_gridlines_total_fill_and_redundant_s
     _build_balance_sheet(workbook, "Monthly Balance", "2025-12")
     workbook.save(path)
 
+    apply_workbook_style(path)
     apply_databook_display_preferences(path, _handoff())
 
     workbook = load_workbook(path)
@@ -90,6 +92,7 @@ def test_nonredundant_parent_subtotals_remain_visible(tmp_path: Path):
     sheet["C12"] = "=C8+C9+C11"
     workbook.save(path)
 
+    apply_workbook_style(path)
     apply_databook_display_preferences(path, _handoff())
 
     workbook = load_workbook(path)
@@ -119,6 +122,7 @@ def test_monthly_chart_legend_is_named_and_bar_gap_is_40_percent(tmp_path: Path)
     sheet.add_chart(bar, "B12")
     workbook.save(path)
 
+    apply_workbook_style(path)
     apply_databook_display_preferences(path, _handoff())
 
     workbook = load_workbook(path)

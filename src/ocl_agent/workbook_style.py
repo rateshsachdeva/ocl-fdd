@@ -5,6 +5,9 @@ change categories, periods, financial values, controls or conclusions.
 """
 from __future__ import annotations
 
+from datetime import date, datetime
+from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -18,7 +21,6 @@ GRAND_TOTAL = "E5E5E5"
 SOURCE_GREY = "808080"
 NOTE_GREY = "7F7F7F"
 INPUT_BLUE = "0000FF"
-LINK_GREEN = "008000"
 BLACK = "000000"
 WHITE = "FFFFFF"
 AMBER = "FFF2CC"
@@ -31,6 +33,36 @@ PERCENT = '0.0%;[Red](0.0%);-'
 MULTIPLE = '0.0x'
 THIN_GREY = Side(style="thin", color="BFBFBF")
 MEDIUM_BLUE = Side(style="medium", color=KPMG_BLUE)
+WIDTH_SAMPLE_ROWS = 120
+
+
+@lru_cache(maxsize=None)
+def _font(color: str = BLACK, bold: bool = False, italic: bool = False, size: int = 8) -> Font:
+    """Return one immutable common font instead of rebuilding it per cell."""
+    return Font(name="Arial", size=size, color=color, bold=bold, italic=italic)
+
+
+@lru_cache(maxsize=None)
+def _alignment(
+    vertical: str = "center",
+    horizontal: str | None = None,
+    wrap_text: bool = False,
+    indent: int = 0,
+) -> Alignment:
+    """Return one immutable common alignment for a presentation role."""
+    return Alignment(vertical=vertical, horizontal=horizontal, wrap_text=wrap_text, indent=indent)
+
+
+HEADER_GREY_FILL = PatternFill("solid", fgColor=LIGHT_GREY)
+SECTION_BLUE_FILL = PatternFill("solid", fgColor=KPMG_BLUE)
+TOTAL_GREY_FILL = PatternFill("solid", fgColor=GRAND_TOTAL)
+AMBER_FILL = PatternFill("solid", fgColor=AMBER)
+PASS_CELL_FILL = PatternFill("solid", fgColor=PASS_FILL)
+FAIL_CELL_FILL = PatternFill("solid", fgColor=FAIL_FILL)
+HEADER_GREY_BORDER = Border(bottom=THIN_GREY)
+SECTION_BLUE_BORDER = Border(bottom=MEDIUM_BLUE)
+TOTAL_BORDER = Border(top=MEDIUM_BLUE, bottom=MEDIUM_BLUE)
+PARENT_BORDER = Border(top=THIN_GREY)
 
 FRONT_ORDER = [
     "Deal Issues", "Key Findings", "Q&A", "Checks", "Balance by Category",
@@ -82,7 +114,13 @@ def style_workbook(workbook) -> None:
 
 
 def _base_sheet(sheet) -> None:
+    """Apply sheet/page defaults without repainting every populated cell."""
     sheet.sheet_view.showGridLines = False
+    sheet.print_options.gridLines = False
+    try:
+        sheet.print_options.gridLinesSet = True
+    except AttributeError:
+        pass
     sheet.sheet_view.zoomScale = 90
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.fitToWidth = 1
@@ -91,21 +129,108 @@ def _base_sheet(sheet) -> None:
     sheet.page_margins.right = 0.25
     sheet.page_margins.top = 0.5
     sheet.page_margins.bottom = 0.5
-    for row in sheet.iter_rows():
-        for cell in row:
-            cell.font = Font(name="Arial", size=8, color=BLACK, bold=bool(cell.font.bold), italic=bool(cell.font.italic))
-            cell.alignment = Alignment(vertical="center", wrap_text=False)
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK, bold=bool(cell.font.bold))
     if sheet.max_row:
         sheet.row_dimensions[1].height = 18
 
 
+def style_generated_support_cell(cell, *, role: str, accounting: bool = False) -> None:
+    """Style a large generated support cell once, while it is being written.
+
+    ``source`` cells are protected source hardcodes; ``linked`` cells are flat
+    file lineage/model cells; ``model`` cells are deterministic support data.
+    """
+    value = cell.value
+    is_formula = isinstance(value, str) and value.startswith("=")
+    is_numeric = isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
+    is_date = isinstance(value, (date, datetime))
+    if role == "source":
+        color = BLACK if is_formula else INPUT_BLUE
+    elif role == "linked":
+        color = BLACK if is_formula or is_numeric or is_date else INPUT_BLUE
+    else:
+        color = BLACK
+    cell.font = _font(color)
+    cell.alignment = _alignment()
+    if accounting:
+        cell.number_format = ACCOUNTING
+
+
+def _support_body_is_preformatted(
+    sheet,
+    start_row: int,
+    role: str,
+    amount_col: int | None = None,
+    *,
+    max_row: int | None = None,
+    max_col: int | None = None,
+) -> bool:
+    """Check a bounded representative sample before any compatibility repaint."""
+    max_row = sheet.max_row if max_row is None else max_row
+    max_col = sheet.max_column if max_col is None else max_col
+    if max_row < start_row or max_col < 1:
+        return True
+    candidates = {start_row, min(max_row, start_row + 1), max_row, max(start_row, (start_row + max_row) // 2)}
+    for row in sorted(candidates):
+        for col in range(1, max_col + 1):
+            cell = sheet.cell(row, col)
+            value = cell.value
+            is_formula = isinstance(value, str) and value.startswith("=")
+            is_numeric = isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
+            is_date = isinstance(value, (date, datetime))
+            if role == "source":
+                # A completed presentation pass converts source period values
+                # in the bounded header area to black Excel dates. Freshly
+                # rendered CSV strings remain protected source blue until then.
+                expected_color = BLACK if is_formula or (row <= 12 and is_date) else INPUT_BLUE
+            elif role == "linked":
+                expected_color = BLACK if is_formula or is_numeric or is_date else INPUT_BLUE
+            else:
+                expected_color = BLACK
+            color = cell.font.color
+            rgb = str(color.rgb or "") if color and color.type == "rgb" else ""
+            if cell.font.name != "Arial" or cell.font.sz != 8 or not rgb.upper().endswith(expected_color):
+                return False
+            if cell.alignment.vertical != "center" or bool(cell.alignment.wrap_text):
+                return False
+            if amount_col == col and value not in (None, "") and cell.number_format != ACCOUNTING:
+                return False
+    return True
+
+
+def _ensure_generated_support_body(
+    sheet,
+    start_row: int,
+    role: str,
+    amount_col: int | None = None,
+    *,
+    max_row: int | None = None,
+    max_col: int | None = None,
+) -> None:
+    max_row = sheet.max_row if max_row is None else max_row
+    max_col = sheet.max_column if max_col is None else max_col
+    if _support_body_is_preformatted(
+        sheet,
+        start_row,
+        role,
+        amount_col,
+        max_row=max_row,
+        max_col=max_col,
+    ):
+        return
+    for row in range(start_row, max_row + 1):
+        for col in range(1, max_col + 1):
+            style_generated_support_cell(
+                sheet.cell(row, col),
+                role=role,
+                accounting=bool(amount_col == col and sheet.cell(row, col).value not in (None, "")),
+            )
+
+
 def _title(sheet, title_row: int = 1, subtitle_row: int | None = 2) -> None:
     if sheet.cell(title_row, 1).value not in (None, ""):
-        sheet.cell(title_row, 1).font = Font(name="Arial", size=14, bold=True, color=TITLE_NAVY)
+        sheet.cell(title_row, 1).font = _font(TITLE_NAVY, True, size=14)
     if subtitle_row and sheet.cell(subtitle_row, 1).value not in (None, ""):
-        sheet.cell(subtitle_row, 1).font = Font(name="Arial", size=8, bold=True, color=BLACK)
+        sheet.cell(subtitle_row, 1).font = _font(BLACK, True)
 
 
 def _header_row(sheet, row: int, start_col: int = 1, end_col: int | None = None, *, blue: bool = False) -> None:
@@ -114,30 +239,26 @@ def _header_row(sheet, row: int, start_col: int = 1, end_col: int | None = None,
         cell = sheet.cell(row, col)
         if cell.value in (None, "") and not blue:
             continue
-        cell.fill = PatternFill("solid", fgColor=KPMG_BLUE if blue else LIGHT_GREY)
-        cell.font = Font(name="Arial", size=8, bold=True, color=WHITE if blue else BLACK)
-        cell.alignment = Alignment(vertical="center", horizontal="right" if col > start_col else "left", wrap_text=True)
-        cell.border = Border(bottom=MEDIUM_BLUE if blue else THIN_GREY)
+        cell.fill = SECTION_BLUE_FILL if blue else HEADER_GREY_FILL
+        cell.font = _font(WHITE if blue else BLACK, True)
+        cell.alignment = _alignment(horizontal="right" if col > start_col else "left", wrap_text=True)
+        cell.border = SECTION_BLUE_BORDER if blue else HEADER_GREY_BORDER
 
 
 def _section_row(sheet, row: int, start_col: int = 2, end_col: int | None = None) -> None:
     end_col = end_col or max(start_col, sheet.max_column)
     for col in range(start_col, end_col + 1):
         cell = sheet.cell(row, col)
-        cell.fill = PatternFill("solid", fgColor=KPMG_BLUE)
-        cell.font = Font(name="Arial", size=8, bold=True, color=WHITE)
-        cell.border = Border(bottom=MEDIUM_BLUE)
+        cell.fill = SECTION_BLUE_FILL
+        cell.font = _font(WHITE, True)
+        cell.border = SECTION_BLUE_BORDER
 
 
 def _source_sheet(sheet) -> None:
     _header_row(sheet, 1, blue=False)
     sheet.sheet_properties.tabColor = SOURCE_GREY
     sheet.freeze_panes = "A2"
-    for row in sheet.iter_rows(min_row=2):
-        for cell in row:
-            cell.font = Font(name="Arial", size=8, color=INPUT_BLUE)
-            if isinstance(cell.value, (int, float)):
-                cell.number_format = ACCOUNTING
+    _ensure_generated_support_body(sheet, 2, "source", _source_amount_column(sheet))
     sheet.protection.sheet = True
     _reasonable_widths(sheet, 28)
 
@@ -151,18 +272,17 @@ def _flat_sheet(sheet) -> None:
     sheet.sheet_properties.tabColor = KPMG_BLUE
     headers = _headers(sheet, 2)
     amount_col = headers.get("Amount")
-    for row in range(3, max_row + 1):
-        for col in range(1, max_col + 1):
-            cell = sheet.cell(row, col)
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK)
-            else:
-                cell.font = Font(name="Arial", size=8, color=INPUT_BLUE)
-        if amount_col:
-            sheet.cell(row, amount_col).number_format = ACCOUNTING
+    _ensure_generated_support_body(sheet, 3, "linked", amount_col, max_row=max_row, max_col=max_col)
     _reasonable_widths(sheet, 34)
     _set_width(sheet, headers.get("Source_Record_ID"), 26)
     _set_width(sheet, headers.get("Source_Label"), 30)
+
+
+def _source_amount_column(sheet) -> int | None:
+    for col in range(1, sheet.max_column + 1):
+        if str(sheet.cell(1, col).value or "").strip().casefold() in {"amount", "raw_amount", "signed_amount"}:
+            return col
+    return None
 
 
 def _balance_sheet(sheet) -> None:
@@ -182,22 +302,22 @@ def _balance_sheet(sheet) -> None:
         if is_total:
             for col in range(2, max_col + 1):
                 cell = sheet.cell(row, col)
-                cell.fill = PatternFill("solid", fgColor=GRAND_TOTAL)
-                cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
-                cell.border = Border(top=MEDIUM_BLUE, bottom=MEDIUM_BLUE)
+                cell.fill = TOTAL_GREY_FILL
+                cell.font = _font(BLACK, True)
+                cell.border = TOTAL_BORDER
         elif is_parent:
             for col in range(2, max_col + 1):
                 cell = sheet.cell(row, col)
-                cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
-                cell.border = Border(top=THIN_GREY)
+                cell.font = _font(BLACK, True)
+                cell.border = PARENT_BORDER
         else:
-            sheet.cell(row, 2).alignment = Alignment(indent=1, vertical="center")
+            sheet.cell(row, 2).font = _font(BLACK)
+            sheet.cell(row, 2).alignment = _alignment(indent=1)
         for col in range(3, max_col + 1):
             cell = sheet.cell(row, col)
             cell.number_format = ACCOUNTING
-            cell.alignment = Alignment(horizontal="right", vertical="center")
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                cell.font = Font(name="Arial", size=8, bold=is_parent or is_total, color=LINK_GREEN if "!" in cell.value else BLACK)
+            cell.alignment = _alignment(horizontal="right")
+            cell.font = _font(BLACK, is_parent or is_total)
     sheet.column_dimensions["B"].width = 30
     for col in range(3, max_col + 1):
         sheet.column_dimensions[get_column_letter(col)].width = 13
@@ -210,21 +330,27 @@ def _rollforward_sheet(sheet) -> None:
     _title(sheet)
     sheet.column_dimensions["A"].width = 5
     sheet.freeze_panes = "C8"
+    header_rows: set[int] = set()
     for row in range(6, max_row + 1):
         label = sheet.cell(row, 2).value
         if label in (None, ""):
+            continue
+        if row in header_rows:
             continue
         other_values = [sheet.cell(row, col).value for col in range(3, max_col + 1)]
         if all(value in (None, "") for value in other_values):
             _section_row(sheet, row, 2, max_col)
             if row + 1 <= max_row:
+                header_rows.add(row + 1)
                 _header_row(sheet, row + 1, 2, max_col)
             continue
         for col in range(3, max_col + 1):
             cell = sheet.cell(row, col)
             if isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.startswith("=")):
                 cell.number_format = ACCOUNTING
-                cell.alignment = Alignment(horizontal="right", vertical="center")
+                cell.alignment = _alignment(horizontal="right")
+                cell.font = _font(BLACK)
+        sheet.cell(row, 2).font = _font(BLACK)
     sheet.column_dimensions["B"].width = 22
     for col in range(3, max_col + 1):
         sheet.column_dimensions[get_column_letter(col)].width = 13
@@ -232,12 +358,16 @@ def _rollforward_sheet(sheet) -> None:
 
 def _checks_sheet(sheet) -> None:
     _title(sheet, 1, 2)
-    sheet.cell(2, 1).font = Font(name="Arial", size=8, color=NOTE_GREY)
+    sheet.cell(2, 1).font = _font(NOTE_GREY)
     _header_row(sheet, 4)
     sheet.freeze_panes = "A5"
     sheet.sheet_properties.tabColor = KPMG_BLUE
     headers = _headers(sheet, 4)
     for row in range(5, sheet.max_row + 1):
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row, col)
+            cell.font = _font(BLACK)
+            cell.alignment = _alignment()
         for name in ("Python_Actual", "Python_Expected", "Python_Difference", "Workbook_Difference"):
             col = headers.get(name)
             if col:
@@ -259,11 +389,18 @@ def _mapping_sheet(sheet) -> None:
     headers = _headers(sheet, 2)
     for row in range(3, max_row + 1):
         for col in range(1, max_col + 1):
-            sheet.cell(row, col).font = Font(name="Arial", size=8, color=INPUT_BLUE)
+            cell = sheet.cell(row, col)
+            value = cell.value
+            black = (
+                isinstance(value, str) and value.startswith("=")
+                or isinstance(value, (int, float, Decimal, date, datetime)) and not isinstance(value, bool)
+            )
+            cell.font = _font(BLACK if black else INPUT_BLUE)
+            cell.alignment = _alignment()
         status_col = headers.get("Review_Status")
         if status_col and str(sheet.cell(row, status_col).value or "").upper() != "REVIEWED":
             for col in range(1, max_col + 1):
-                sheet.cell(row, col).fill = PatternFill("solid", fgColor=AMBER)
+                sheet.cell(row, col).fill = AMBER_FILL
     _reasonable_widths(sheet, 36)
     _set_width(sheet, headers.get("Reason"), 55)
 
@@ -272,7 +409,7 @@ def _unmapped_sheet(sheet) -> None:
     max_row = sheet.max_row
     max_col = sheet.max_column
     _title(sheet, 1, 2)
-    sheet.cell(2, 1).font = Font(name="Arial", size=8, color=NOTE_GREY)
+    sheet.cell(2, 1).font = _font(NOTE_GREY)
     _header_row(sheet, 3, end_col=max_col)
     sheet.freeze_panes = "A4"
     sheet.sheet_properties.tabColor = "C65911"
@@ -282,8 +419,9 @@ def _unmapped_sheet(sheet) -> None:
     for row in range(4, max_row + 1):
         for col in range(1, max_col + 1):
             cell = sheet.cell(row, col)
-            cell.fill = PatternFill("solid", fgColor=AMBER)
-            cell.font = Font(name="Arial", size=8, color=NOTE_GREY if col == source_col else BLACK)
+            cell.fill = AMBER_FILL
+            cell.font = _font(NOTE_GREY if col == source_col else BLACK)
+            cell.alignment = _alignment()
         if amount_col:
             sheet.cell(row, amount_col).number_format = ACCOUNTING
     _reasonable_widths(sheet, 38)
@@ -297,6 +435,9 @@ def _scope_excluded_sheet(sheet) -> None:
     headers = _headers(sheet, 2)
     amount_col = headers.get("Amount")
     for row in range(3, sheet.max_row + 1):
+        for col in range(1, sheet.max_column + 1):
+            sheet.cell(row, col).font = _font(BLACK)
+            sheet.cell(row, col).alignment = _alignment()
         if amount_col:
             sheet.cell(row, amount_col).number_format = ACCOUNTING
     _reasonable_widths(sheet, 36)
@@ -326,10 +467,18 @@ def _analysis_sheet(sheet) -> None:
         wrap = sheet.title in {"Key Findings", "Q&A"}
         for col in range(2, max_col + 1):
             cell = sheet.cell(row, col)
-            if isinstance(cell.value, str) and cell.value.startswith("="):
-                cell.font = Font(name="Arial", size=8, color=LINK_GREEN if "!" in cell.value else BLACK)
             numeric = _numeric_like(cell)
-            cell.alignment = Alignment(vertical="top" if wrap else "center", horizontal="right" if numeric else "left", wrap_text=wrap)
+            is_formula = isinstance(cell.value, str) and cell.value.startswith("=")
+            fill_rgb = str(cell.fill.fgColor.rgb or "") if cell.fill.fgColor.type == "rgb" else ""
+            if not is_formula and fill_rgb.upper().endswith(KPMG_BLUE):
+                cell.font = _font(WHITE, True)
+            else:
+                cell.font = _font(BLACK) if is_formula else _font(BLACK, bool(cell.font.bold), bool(cell.font.italic))
+            cell.alignment = _alignment(
+                vertical="top" if wrap else "center",
+                horizontal="right" if numeric else "left",
+                wrap_text=wrap,
+            )
             if numeric:
                 header = str(sheet.cell(7, col).value or sheet.cell(8, col).value or "")
                 if "%" in header or header == "YE vs Avg":
@@ -356,9 +505,11 @@ def _deal_issues_sheet(sheet) -> None:
     max_row = sheet.max_row
     for row in range(1, max_row + 1):
         first = sheet.cell(row, 1)
-        first.alignment = Alignment(vertical="top", wrap_text=True)
+        first.alignment = _alignment(vertical="top", wrap_text=True)
         if first.value and row >= 4 and (row - 4) % 6 == 0:
-            first.font = Font(name="Arial", size=8, bold=True, color=BLACK)
+            first.font = _font(BLACK, True)
+        elif first.value and row >= 4:
+            first.font = _font(BLACK, bool(first.font.bold), bool(first.font.italic))
         if first.value and row >= 4:
             sheet.row_dimensions[row].height = max(15, min(90, 15 * (len(str(first.value)) // 100 + 1)))
     sheet.column_dimensions["A"].width = 90
@@ -366,23 +517,24 @@ def _deal_issues_sheet(sheet) -> None:
 
 def _generic_sheet(sheet) -> None:
     _header_row(sheet, 1)
+    _ensure_generated_support_body(sheet, 2, "model")
     _reasonable_widths(sheet, 30)
 
 
 def _status_cell(cell, status: str) -> None:
     status = status.upper()
     if status == "PASS":
-        cell.fill = PatternFill("solid", fgColor=PASS_FILL)
-        cell.font = Font(name="Arial", size=8, bold=True, color=PASS_FONT)
+        cell.fill = PASS_CELL_FILL
+        cell.font = _font(PASS_FONT, True)
     elif status == "FAIL":
-        cell.fill = PatternFill("solid", fgColor=FAIL_FILL)
-        cell.font = Font(name="Arial", size=8, bold=True, color=FAIL_FONT)
+        cell.fill = FAIL_CELL_FILL
+        cell.font = _font(FAIL_FONT, True)
     elif status == "REVIEW_REQUIRED":
-        cell.fill = PatternFill("solid", fgColor=AMBER)
-        cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
+        cell.fill = AMBER_FILL
+        cell.font = _font(BLACK, True)
     elif status == "NOT_APPLICABLE":
-        cell.fill = PatternFill("solid", fgColor=LIGHT_GREY)
-        cell.font = Font(name="Arial", size=8, bold=True, color=NOTE_GREY)
+        cell.fill = HEADER_GREY_FILL
+        cell.font = _font(NOTE_GREY, True)
 
 
 def _headers(sheet, row: int) -> dict[str, int]:
@@ -435,22 +587,23 @@ def _style_analysis_hierarchy(sheet, data_start: int, max_row: int, max_col: int
         if is_total:
             for col in range(2, max_col + 1):
                 cell = sheet.cell(row, col)
-                cell.fill = PatternFill("solid", fgColor=GRAND_TOTAL)
-                cell.font = Font(name="Arial", size=8, bold=True, color=BLACK)
-                cell.border = Border(top=MEDIUM_BLUE, bottom=MEDIUM_BLUE)
+                cell.fill = TOTAL_GREY_FILL
+                cell.font = _font(BLACK, True)
+                cell.border = TOTAL_BORDER
         elif dimension.collapsed:
             for col in range(2, max_col + 1):
-                sheet.cell(row, col).font = Font(name="Arial", size=8, bold=True, color=BLACK)
+                sheet.cell(row, col).font = _font(BLACK, True)
         elif dimension.outlineLevel:
-            sheet.cell(row, 2).alignment = Alignment(indent=1, vertical="center")
+            sheet.cell(row, 2).alignment = _alignment(indent=1)
 
 
 def _reasonable_widths(sheet, max_width: int = 40) -> None:
+    """Set usable widths from a fixed 120-row sample, never the full data set."""
     max_row = sheet.max_row
     max_col = sheet.max_column
     for col in range(1, max_col + 1):
         width = 10
-        for row in range(1, min(max_row, 120) + 1):
+        for row in range(1, min(max_row, WIDTH_SAMPLE_ROWS) + 1):
             value = sheet.cell(row, col).value
             if value is not None:
                 width = max(width, min(max_width, len(str(value)) + 2))
