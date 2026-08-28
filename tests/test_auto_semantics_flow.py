@@ -2,8 +2,11 @@ import csv
 import json
 from pathlib import Path
 
+from openpyxl import load_workbook
+
 from ocl_agent.auto_semantics import ensure_semantic_handoff
 from ocl_agent.part1_databook.run import run_part1
+from ocl_agent.part2_analysis.extended import extended_analysis
 
 
 def _write_csv(path: Path, headers, rows) -> None:
@@ -138,11 +141,85 @@ def test_canonical_movement_roles_and_row_multipliers_activate_rollforward(tmp_p
     assert next(control for control in result.controls if control.control_id == "chk_rollforward").status.value == "PASS"
 
 
+def test_canonical_partial_movements_reach_records_analysis_and_rollforward_without_claiming_completeness(tmp_path: Path):
+    package = _build_canonical_package(tmp_path / "package")
+    _write_csv(
+        package / "ocl_movements.csv",
+        ["Source_Record_ID", "Period", "Source_Label", "Source_Code", "Entity", "Movement_Type", "Movement_Multiplier", "Amount"],
+        [
+            ["M1", "FY24", "Bonus accrual", "2100", "Entity A", "OPENING", 1, 0],
+            ["M2", "FY24", "Bonus accrual", "2100", "Entity A", "FLOW", 1, 300000],
+            ["M3", "FY24", "Bonus accrual", "2100", "Entity A", "CLOSING", 1, 300000],
+            ["M4", "FY25", "Bonus accrual", "2100", "Entity A", "OPENING", 1, 300000],
+            ["M5", "FY25", "Bonus accrual", "2100", "Entity A", "FLOW", 1, 200000],
+            ["M6", "FY25", "Bonus accrual", "2100", "Entity A", "FLOW", -1, 50000],
+            ["M7", "FY25", "Bonus accrual", "2100", "Entity A", "CLOSING", 1, 450000],
+        ],
+    )
+    manifest = json.loads((package / "execution_manifest.json").read_text(encoding="utf-8"))
+    manifest["outputs_created"].append("ocl_movements.csv")
+    (package / "execution_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    metadata = json.loads((package / "databook_metadata.json").read_text(encoding="utf-8"))
+    metadata["logical_datasets"] = [{
+        "metadata": [{
+            "metadata_type": "DATASET_PURPOSE",
+            "status": "EVIDENCED",
+            "confidence": "HIGH",
+            "value": "Selected liability movements",
+            "evidence": "The source states that only selected movement-subledger accounts are included.",
+        }]
+    }]
+    (package / "databook_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    config = _build_reviewed_config(tmp_path / "config")
+
+    result = run_part1(package, config, tmp_path / "output")
+
+    assert result.state == "DATABOOK_READY"
+    payload = json.loads((config / "semantic_handoff.json").read_text(encoding="utf-8"))
+    movement_binding = next(item for item in payload["datasets"] if item["file"] == "ocl_movements.csv")
+    assert movement_binding["usages"] == ["MOVEMENT_RECORDS", "SUPPORTING_EVIDENCE"]
+    assert movement_binding["population_coverage"] == "PARTIAL"
+    assert payload["movement_to_annual"] == []
+    assert result.movement_build is not None
+    assert result.movement_build.population_coverage == "PARTIAL"
+    assert len(result.movement_build.records) == 7
+    assert {record.movement_role for record in result.movement_build.records} == {"OPENING", "FLOW", "CLOSING"}
+    assert all(record.dimensions["population_coverage"] == "PARTIAL" for record in result.movement_build.records)
+
+    control = next(item for item in result.controls if item.control_id == "chk_rollforward")
+    assert control.status.value == "PASS"
+    assert control.evidence["population_coverage"] == "PARTIAL"
+    assert control.evidence["population_completeness_assessed"] is False
+    assert "full OCL population completeness" in control.message
+
+    workbook = load_workbook(result.databook, read_only=True, data_only=False)
+    assert "Roll-forward" in workbook.sheetnames
+    assert "Movements" in workbook.sheetnames
+    assert "selected movement records only" in workbook["Roll-forward"]["A3"].value
+    workbook.close()
+
+    _findings, tables = extended_analysis(result.build.records, movements=result.movement_build.records)
+    movement_table = next(table for table in tables if table.key == "movement_patterns")
+    assert "selected population only" in movement_table.title
+    coverage = next(table for table in tables if table.key == "analysis_coverage")
+    coverage_by_analysis = {row[0]: row for row in coverage.rows}
+    assert coverage_by_analysis["Utilisation"][1] == "PARTIAL"
+    assert coverage_by_analysis["Reversal patterns"][1] == "PARTIAL"
+    assert "does not establish full OCL population completeness" in coverage_by_analysis["Utilisation"][3]
+
+
 def test_canonical_whole_dataset_tb_control_needs_no_literal_ocl_value(tmp_path: Path):
     package = _build_canonical_package(tmp_path / "package")
     _write_csv(package / "tb_control.csv", ["Period", "Amount"], [["FY24", 300000], ["FY25", 450000]])
     manifest = json.loads((package / "execution_manifest.json").read_text(encoding="utf-8"))
     manifest["outputs_created"].append("tb_control.csv")
+    manifest["control_bindings"] = [{
+        "control_id": "chk_listing_vs_tb",
+        "dataset_file": "tb_control.csv",
+        "period_field": "Period",
+        "amount_field": "Amount",
+        "whole_dataset": True,
+    }]
     (package / "execution_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     config = _build_reviewed_config(tmp_path / "config")
 
@@ -153,6 +230,63 @@ def test_canonical_whole_dataset_tb_control_needs_no_literal_ocl_value(tmp_path:
     assert binding.whole_dataset is True
     assert binding.filters == {}
     assert next(control for control in result.controls if control.control_id == "chk_listing_vs_tb").status.value == "PASS"
+
+
+def test_canonical_filtered_tb_control_regenerates_exact_source_backed_filter(tmp_path: Path):
+    package = _build_canonical_package(tmp_path / "package")
+    _write_csv(
+        package / "tb_control.csv",
+        ["Period", "Population_Code", "Amount"],
+        [
+            ["FY24", "ACC", 300000],
+            ["FY24", "OTHER", 900000],
+            ["FY25", "ACC", 450000],
+            ["FY25", "OTHER", 1100000],
+        ],
+    )
+    manifest = json.loads((package / "execution_manifest.json").read_text(encoding="utf-8"))
+    manifest["outputs_created"].append("tb_control.csv")
+    manifest["control_bindings"] = [{
+        "control_id": "chk_listing_vs_tb",
+        "dataset_file": "tb_control.csv",
+        "period_field": "Period",
+        "amount_field": "Amount",
+        "filters": {"Population_Code": ["ACC"]},
+    }]
+    (package / "execution_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    config = _build_reviewed_config(tmp_path / "config")
+
+    result = run_part1(package, config, tmp_path / "output")
+
+    assert result.state == "DATABOOK_READY"
+    binding = next(control for control in result.handoff.controls if control.control_id == "chk_listing_vs_tb")
+    assert binding.dataset_file == "tb_control.csv"
+    assert binding.filters == {"Population_Code": ("ACC",)}
+    assert binding.whole_dataset is False
+    tb_dataset = next(item for item in result.handoff.datasets if item.file == "tb_control.csv")
+    assert tb_dataset.fields.period == "Period"
+    assert tb_dataset.fields.amount == "Amount"
+    assert "OCL" not in json.dumps(manifest["control_bindings"])
+    assert next(control for control in result.controls if control.control_id == "chk_listing_vs_tb").status.value == "PASS"
+
+
+def test_ambiguous_valid_tb_dataset_does_not_auto_bind_without_explicit_manifest_semantics(tmp_path: Path):
+    package = _build_canonical_package(tmp_path / "package")
+    _write_csv(
+        package / "tb_control.csv",
+        ["Period", "Population_Code", "Amount"],
+        [["FY24", "ACC", 300000], ["FY24", "OTHER", 900000], ["FY25", "ACC", 450000]],
+    )
+    manifest = json.loads((package / "execution_manifest.json").read_text(encoding="utf-8"))
+    manifest["outputs_created"].append("tb_control.csv")
+    (package / "execution_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    config = _build_reviewed_config(tmp_path / "config")
+
+    result = run_part1(package, config, tmp_path / "output")
+
+    assert result.state == "AWAITING_CONTROL_ALIGNMENT"
+    assert not result.handoff.controls
+    assert next(control for control in result.controls if control.control_id == "chk_listing_vs_tb").status.value == "REVIEW_REQUIRED"
 
 
 def test_invalid_canonical_tb_population_remains_unresolved(tmp_path: Path):

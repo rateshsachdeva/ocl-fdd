@@ -4,6 +4,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from ocl_agent.part1_databook.movements import rollforward_control
 from ocl_agent.part1_databook.run import run_part1
 
 
@@ -93,3 +94,10 @@ def test_unknown_movement_type_stops_instead_of_guessing(tmp_path: Path):
     control = next(item for item in result.controls if item.control_id == "chk_rollforward")
     assert control.status.value == "REVIEW_REQUIRED"
     assert result.databook is None
+
+
+def test_absent_movement_dataset_remains_not_applicable():
+    control = rollforward_control((), (), (), (), "NONE")
+
+    assert control.status.value == "NOT_APPLICABLE"
+    assert control.message == "No movement dataset is available."

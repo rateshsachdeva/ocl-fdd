@@ -58,6 +58,7 @@ class DatasetBinding:
     dimensions: tuple[str, ...] = ()
     notes: str = ""
     usage_filters: dict[DatasetUsage, dict[str, tuple[str, ...]]] = field(default_factory=dict)
+    population_coverage: str = "FULL"
 
     def filters_for(self, usage: DatasetUsage) -> dict[str, tuple[str, ...]]:
         return self.usage_filters.get(usage, {})
@@ -228,7 +229,26 @@ def load_semantic_handoff(
                     f"Dataset {filename!r} is used for movements but is missing roles: {', '.join(missing_roles)}"
                 )
         usage_filters = _parse_usage_filters(filename, item.get("usage_filters", {}), usages, available)
-        bindings.append(DatasetBinding(filename, usages, fields, dimensions, str(item.get("notes", "")), usage_filters))
+        population_coverage = str(item.get("population_coverage") or "FULL").strip().upper()
+        if population_coverage not in {"FULL", "PARTIAL"}:
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: population_coverage must be FULL or PARTIAL."
+            )
+        if population_coverage == "PARTIAL" and DatasetUsage.MOVEMENT_RECORDS not in usages:
+            raise SemanticHandoffError(
+                f"Dataset {filename!r}: PARTIAL population_coverage is only supported for MOVEMENT_RECORDS."
+            )
+        bindings.append(
+            DatasetBinding(
+                filename,
+                usages,
+                fields,
+                dimensions,
+                str(item.get("notes", "")),
+                usage_filters,
+                population_coverage,
+            )
+        )
 
     alignments: list[PeriodAlignment] = []
     seen_annual: set[str] = set()

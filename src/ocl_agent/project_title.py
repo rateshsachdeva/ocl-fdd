@@ -1,6 +1,7 @@
 """Source-driven workbook identity with a neutral, reusable fallback."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 DEFAULT_PROJECT_TITLE = "Other Current Liabilities"
@@ -24,10 +25,11 @@ def resolve_project_title(*, package=None, workbook=None) -> str:
         if isinstance(dataset, dict)
         for item in dataset.get("metadata", [])
         if isinstance(item, dict)
-        and str(item.get("metadata_type") or "").upper() == "ENTITY"
+        and str(item.get("metadata_type") or "").upper() in {"ENTITY", "ENGAGEMENT_LABEL", "COMPANY_NAME", "TARGET_NAME"}
         and str(item.get("status") or "").upper() == "EVIDENCED"
         and (value := _text(item.get("value")))
     }
+    entities.update(_explicit_readme_labels(metadata))
     if len(entities) == 1:
         return _with_subject(next(iter(entities)))
 
@@ -48,6 +50,27 @@ def _with_subject(label: str) -> str:
     if "other current liabilities" in label.casefold():
         return label
     return f"{label} - {DEFAULT_PROJECT_TITLE}"
+
+
+def _explicit_readme_labels(metadata: dict[str, Any]) -> set[str]:
+    """Recover only labels explicitly named by evidenced workbook-context metadata."""
+    labels: set[str] = set()
+    for dataset in metadata.get("logical_datasets", []):
+        if not isinstance(dataset, dict):
+            continue
+        for item in dataset.get("metadata", []):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("status") or "").upper() != "EVIDENCED":
+                continue
+            source_context = str(item.get("source_context") or "").casefold()
+            if "read me" not in source_context and "readme" not in source_context:
+                continue
+            evidence = str(item.get("evidence") or "").strip()
+            match = re.search(r"\bidentifies\s+(.+?)(?:,|\s+-\s+)", evidence, flags=re.IGNORECASE)
+            if match and (label := _text(match.group(1))):
+                labels.add(label)
+    return labels
 
 
 def _text(value: Any) -> str | None:

@@ -53,7 +53,13 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
 
     datasets: list[dict[str, object]] = []
 
-    def add_record(file: str, usage: str, *, movement: bool = False) -> None:
+    def add_record(
+        file: str,
+        usage: str,
+        *,
+        movement: bool = False,
+        population_coverage: str = "FULL",
+    ) -> None:
         path = data_prep_output / file
         headers = _headers(path)
         required = dict(_REQUIRED_RECORD_FIELDS)
@@ -68,7 +74,7 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
                 fields[role] = column
         item: dict[str, object] = {
             "file": file,
-            "usages": [usage],
+            "usages": [usage, "SUPPORTING_EVIDENCE"] if movement and population_coverage == "PARTIAL" else [usage],
             "fields": fields,
             "dimensions": [],
             "notes": "Canonical integrated data-preparation output; semantics carried forward deterministically.",
@@ -78,6 +84,12 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
             if not rules:
                 return
             item["movement_rules"] = rules
+            item["population_coverage"] = population_coverage
+            if population_coverage == "PARTIAL":
+                item["notes"] = (
+                    "Canonical selected movement population; usable for covered-record movement analysis and "
+                    "roll-forward arithmetic, but not evidence of full OCL population completeness."
+                )
         datasets.append(item)
 
     def add_context(file: str, usage: str, amount_candidates: tuple[str, ...]) -> None:
@@ -101,7 +113,13 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
 
     add_record("ocl_annual.csv", "OCL_RECORDS")
     add_record("ocl_monthly.csv", "MONTHLY_RECORDS")
-    add_record("ocl_movements.csv", "MOVEMENT_RECORDS", movement=True)
+    movement_coverage = _movement_population_coverage(metadata)
+    add_record(
+        "ocl_movements.csv",
+        "MOVEMENT_RECORDS",
+        movement=True,
+        population_coverage=movement_coverage,
+    )
 
     tb_path = data_prep_output / "tb_control.csv"
     tb_headers = _headers(tb_path)
@@ -139,13 +157,17 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
             monthly_to_annual.append({"annual_period": annual, "monthly_period": sorted(candidates, key=_period_sort)[-1]})
 
     movement_to_annual = []
-    for movement in movement_periods:
-        year = _year_of(movement)
-        candidates = [period for period in annual_periods if _year_of(period) == year]
-        if candidates:
-            movement_to_annual.append({"movement_period": movement, "annual_period": candidates[-1]})
+    if movement_coverage == "FULL":
+        for year in sorted({_year_of(period) for period in movement_periods} - {None}):
+            movement_candidates = [period for period in movement_periods if _year_of(period) == year]
+            annual_candidates = [period for period in annual_periods if _year_of(period) == year]
+            if movement_candidates and annual_candidates:
+                movement_to_annual.append({
+                    "movement_period": sorted(movement_candidates, key=_period_sort)[-1],
+                    "annual_period": sorted(annual_candidates, key=_period_sort)[-1],
+                })
 
-    controls = _control_bindings(tb_path)
+    controls = _control_bindings(manifest, data_prep_output, datasets)
     payload = {
         "handoff_version": "1.0",
         "status": "CONFIRMED",
@@ -185,51 +207,111 @@ def _movement_rules(path: Path) -> dict[str, dict[str, object]]:
     return rules
 
 
-def _control_bindings(path: Path) -> list[dict[str, object]]:
-    headers = _headers(path)
-    if not path.exists() or not {"Period", "Amount"}.issubset(headers):
+def _movement_population_coverage(metadata: dict) -> str:
+    """Carry forward an explicit selected/partial movement-population statement."""
+    explicit = str(metadata.get("movement_population_coverage") or "").strip().upper()
+    if explicit in {"FULL", "PARTIAL"}:
+        return explicit
+    for dataset in metadata.get("logical_datasets", []):
+        if not isinstance(dataset, dict):
+            continue
+        for item in dataset.get("metadata", []):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("status") or "").upper() != "EVIDENCED":
+                continue
+            if str(item.get("metadata_type") or "").upper() != "DATASET_PURPOSE":
+                continue
+            value = _norm(str(item.get("value") or ""))
+            if "movement" in value and any(marker in value for marker in ("selected", "partial", "subset")):
+                return "PARTIAL"
+    return "FULL"
+
+
+def _control_bindings(
+    manifest: dict,
+    package_root: Path,
+    datasets: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Carry forward only exact control populations persisted by the approved plan."""
+    raw_bindings = manifest.get("control_bindings")
+    if not isinstance(raw_bindings, list):
         return []
-    if not _valid_control_rows(path):
-        return []
-    if "Control" not in headers:
-        return [{
-            "control_id": "chk_listing_vs_tb",
-            "dataset_file": "tb_control.csv",
-            "period_field": "Period",
-            "amount_field": "Amount",
-            "whole_dataset": True,
-        }]
-    values = _unique_values(path, "Control")
-    normalized = {value: _norm(value) for value in values}
+    dataset_by_file = {str(item.get("file")): item for item in datasets}
     controls: list[dict[str, object]] = []
-    ocl = next((value for value, text in normalized.items() if text in {"ocl", "other current liabilities", "accrued liabilities", "accruals"}), None)
-    if ocl:
-        controls.append({
+    for raw in raw_bindings:
+        if not isinstance(raw, dict) or str(raw.get("control_id") or "") != "chk_listing_vs_tb":
+            continue
+        dataset_file = str(raw.get("dataset_file") or "").strip()
+        period_field = str(raw.get("period_field") or "").strip()
+        amount_field = str(raw.get("amount_field") or "").strip()
+        binding = dataset_by_file.get(dataset_file)
+        path = Path(package_root) / dataset_file
+        headers = _headers(path)
+        if binding is None or not path.exists() or not {period_field, amount_field}.issubset(headers):
+            continue
+        raw_filters = raw.get("filters") or {}
+        if not isinstance(raw_filters, dict):
+            continue
+        filters: dict[str, list[str]] = {}
+        invalid = False
+        for column, values in raw_filters.items():
+            if str(column) not in headers:
+                invalid = True
+                break
+            if isinstance(values, str):
+                normalized = [values]
+            elif isinstance(values, list) and all(isinstance(value, str) for value in values):
+                normalized = values
+            else:
+                invalid = True
+                break
+            if not normalized:
+                invalid = True
+                break
+            filters[str(column)] = normalized
+        whole_dataset = raw.get("whole_dataset") is True
+        if invalid or whole_dataset == bool(filters):
+            continue
+        if not _valid_control_rows(path, period_field, amount_field, filters):
+            continue
+        usages = list(binding.get("usages") or [])
+        if "TB_CONTROL" not in usages:
+            usages.append("TB_CONTROL")
+            binding["usages"] = usages
+        fields = dict(binding.get("fields") or {})
+        fields["period"] = period_field
+        fields["amount"] = amount_field
+        binding["fields"] = fields
+        control: dict[str, object] = {
             "control_id": "chk_listing_vs_tb",
-            "dataset_file": "tb_control.csv",
-            "period_field": "Period",
-            "amount_field": "Amount",
-            "filters": {"Control": [ocl]},
-        })
-    current_liabilities = next((value for value, text in normalized.items() if "current liabil" in text and ("trade" in text or "financ" in text or "including" in text)), None)
-    if current_liabilities:
-        controls.append({
-            "control_id": "chk_scope_reconciles",
-            "dataset_file": "tb_control.csv",
-            "period_field": "Period",
-            "amount_field": "Amount",
-            "filters": {"Control": [current_liabilities]},
-        })
+            "dataset_file": dataset_file,
+            "period_field": period_field,
+            "amount_field": amount_field,
+        }
+        if whole_dataset:
+            control["whole_dataset"] = True
+        else:
+            control["filters"] = filters
+        controls.append(control)
     return controls
 
 
-def _valid_control_rows(path: Path) -> bool:
+def _valid_control_rows(
+    path: Path,
+    period_field: str = "Period",
+    amount_field: str = "Amount",
+    filters: dict[str, list[str]] | None = None,
+) -> bool:
     """Require a business period and numeric amount before auto-binding a control."""
+    filters = filters or {}
     found = False
     with path.open(newline="", encoding="utf-8-sig") as handle:
         for row in csv.DictReader(handle):
-            period = str(row.get("Period", "") or "").strip()
-            raw_amount = str(row.get("Amount", "") or "").strip().replace(",", "")
+            if any(str(row.get(column, "") or "") not in values for column, values in filters.items()):
+                continue
+            period = str(row.get(period_field, "") or "").strip()
+            raw_amount = str(row.get(amount_field, "") or "").strip().replace(",", "")
             if not period or _year_of(period) is None or not raw_amount:
                 return False
             try:

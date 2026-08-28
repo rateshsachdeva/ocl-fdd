@@ -161,7 +161,7 @@ def test_exact_source_reuses_publishable_latest_without_new_ai_planning(
     ]
 
 
-@pytest.mark.parametrize("contract_version", [None, "1"])
+@pytest.mark.parametrize("contract_version", [None, "1", "2"])
 def test_exact_source_with_missing_or_incompatible_contract_is_not_reused(
     tmp_path: Path,
     monkeypatch,

@@ -39,17 +39,19 @@ class MovementBuildResult:
     records: tuple[MovementRecord, ...]
     issues: tuple[str, ...]
     alignments: tuple[MovementAlignment, ...]
+    population_coverage: str = "NONE"
 
 
 def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judgments: JudgmentStore, handoff_path: Path) -> MovementBuildResult:
     movement_bindings = [binding for binding in handoff.datasets if DatasetUsage.MOVEMENT_RECORDS in binding.usages]
     if not movement_bindings:
-        return MovementBuildResult((), (), ())
+        return MovementBuildResult((), (), (), "NONE")
     payload = json.loads(Path(handoff_path).read_text(encoding="utf-8"))
     raw_datasets = {str(item.get("file")): item for item in payload.get("datasets", []) if isinstance(item, dict)}
     alignments = tuple(MovementAlignment(str(item.get("movement_period", "")).strip(), str(item.get("annual_period", "")).strip()) for item in payload.get("movement_to_annual", []) if isinstance(item, dict))
     issues: list[str] = []
     records: list[MovementRecord] = []
+    population_coverage = "PARTIAL" if any(binding.population_coverage == "PARTIAL" for binding in movement_bindings) else "FULL"
     for binding in movement_bindings:
         item = raw_datasets.get(binding.file, {})
         rules = item.get("movement_rules") or {}
@@ -111,16 +113,29 @@ def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judg
                 if judgment.scope == Scope.REVIEW_REQUIRED or judgment.review_status != ReviewStatus.REVIEWED:
                     issues.append(f"{binding.file}:{csv_row}: movement label {label!r} does not have reviewed OCL judgment.")
                     continue
-                dimensions = {"dataset_file": binding.file, "standardized_csv_row": csv_row, "source_code": source_code, "entity": entity, "raw_movement_type": raw_type}
+                dimensions = {
+                    "dataset_file": binding.file,
+                    "standardized_csv_row": csv_row,
+                    "source_code": source_code,
+                    "entity": entity,
+                    "raw_movement_type": raw_type,
+                    "population_coverage": binding.population_coverage,
+                }
                 records.append(MovementRecord(SourceReference(source_record_id), period, amount, label, role, row_multiplier, judgment, dimensions))
-    if movement_bindings and not alignments:
+    if movement_bindings and not alignments and population_coverage == "FULL":
         issues.append("movement_to_annual alignment is missing.")
     if any(not item.movement_period or not item.annual_period for item in alignments):
         issues.append("movement_to_annual contains blank period values.")
-    return MovementBuildResult(tuple(records), tuple(issues), alignments)
+    return MovementBuildResult(tuple(records), tuple(issues), alignments, population_coverage)
 
 
-def rollforward_control(movements: tuple[MovementRecord, ...], annual_records: tuple[OCLRecord, ...], alignments: tuple[MovementAlignment, ...], issues: tuple[str, ...]) -> ControlResult:
+def rollforward_control(
+    movements: tuple[MovementRecord, ...],
+    annual_records: tuple[OCLRecord, ...],
+    alignments: tuple[MovementAlignment, ...],
+    issues: tuple[str, ...],
+    population_coverage: str = "FULL",
+) -> ControlResult:
     if not movements and not issues:
         return ControlResult("chk_rollforward", CheckStatus.NOT_APPLICABLE, message="No movement dataset is available.")
     if issues:
@@ -132,23 +147,49 @@ def rollforward_control(movements: tuple[MovementRecord, ...], annual_records: t
         difference = expected_closing - values["CLOSING"]
         if abs(difference) >= DEFAULT_TOLERANCE:
             breaks.append({"type": "ROLLFORWARD", "period": period, "category": category, "opening": str(values["OPENING"]), "flow": str(values["FLOW"]), "closing": str(values["CLOSING"]), "difference": str(difference)})
-    annual: dict[tuple[str, str], Decimal] = {}
-    for row in annual_records:
-        if row.dimensions.get("record_usage") == "MONTHLY_RECORDS" or row.judgment.scope != Scope.IN_SCOPE or not row.judgment.category:
-            continue
-        annual[(row.period, str(row.judgment.category))] = annual.get((row.period, str(row.judgment.category)), Decimal("0")) + row.amount
-    for alignment in alignments:
-        categories = {category for period, category in grouped if period == alignment.movement_period}
-        for category in sorted(categories):
-            closing = grouped[(alignment.movement_period, category)]["CLOSING"]
-            listing = annual.get((alignment.annual_period, category), Decimal("0"))
-            difference = closing - listing
-            if abs(difference) >= DEFAULT_TOLERANCE:
-                breaks.append({"type": "CLOSING_TO_LISTING", "movement_period": alignment.movement_period, "annual_period": alignment.annual_period, "category": category, "closing": str(closing), "listing": str(listing), "difference": str(difference)})
-    return ControlResult("chk_rollforward", CheckStatus.PASS if not breaks else CheckStatus.FAIL, Decimal(len(breaks)), Decimal("0"), Decimal(len(breaks)), message="Explicit movement roll-forward and closing-to-listing reconciliation." if not breaks else "Movement roll-forward contains reconciliation breaks.", evidence={"breaks": breaks[:100]})
+    if population_coverage == "FULL":
+        annual: dict[tuple[str, str], Decimal] = {}
+        for row in annual_records:
+            if row.dimensions.get("record_usage") == "MONTHLY_RECORDS" or row.judgment.scope != Scope.IN_SCOPE or not row.judgment.category:
+                continue
+            annual[(row.period, str(row.judgment.category))] = annual.get((row.period, str(row.judgment.category)), Decimal("0")) + row.amount
+        for alignment in alignments:
+            categories = {category for period, category in grouped if period == alignment.movement_period}
+            for category in sorted(categories):
+                closing = grouped[(alignment.movement_period, category)]["CLOSING"]
+                listing = annual.get((alignment.annual_period, category), Decimal("0"))
+                difference = closing - listing
+                if abs(difference) >= DEFAULT_TOLERANCE:
+                    breaks.append({"type": "CLOSING_TO_LISTING", "movement_period": alignment.movement_period, "annual_period": alignment.annual_period, "category": category, "closing": str(closing), "listing": str(listing), "difference": str(difference)})
+    passed = not breaks
+    if population_coverage == "PARTIAL":
+        message = (
+            "Explicit movement roll-forward arithmetic for the selected movement population; "
+            "full OCL population completeness and closing-to-listing reconciliation are not assessed."
+            if passed else "Selected-population movement roll-forward contains arithmetic breaks."
+        )
+    else:
+        message = "Explicit movement roll-forward and closing-to-listing reconciliation." if passed else "Movement roll-forward contains reconciliation breaks."
+    return ControlResult(
+        "chk_rollforward",
+        CheckStatus.PASS if passed else CheckStatus.FAIL,
+        Decimal(len(breaks)),
+        Decimal("0"),
+        Decimal(len(breaks)),
+        message=message,
+        evidence={
+            "breaks": breaks[:100],
+            "population_coverage": population_coverage,
+            "population_completeness_assessed": population_coverage == "FULL",
+        },
+    )
 
 
-def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]) -> None:
+def embed_rollforward(
+    databook_path: Path,
+    movements: tuple[MovementRecord, ...],
+    population_coverage: str = "FULL",
+) -> None:
     if not movements:
         return
     workbook = load_workbook(databook_path)
@@ -188,6 +229,8 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
 
     sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Roll-forward"
+    if population_coverage == "PARTIAL":
+        sheet["A3"] = "Coverage: selected movement records only; this schedule does not evidence full OCL population completeness."
     periods = sorted({period for period, _category in grouped})
     categories = sorted({category for _period, category in grouped})
     current_row = 6

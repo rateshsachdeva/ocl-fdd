@@ -86,7 +86,13 @@ def run_part1(
     build = build_ocl_records(package, handoff, judgments)
     movement_build = build_movements(package, handoff, judgments, handoff_path)
     judgment_issues = validate_judgment_completion(build.records)
-    movement_check = rollforward_control(movement_build.records, build.records, movement_build.alignments, movement_build.issues)
+    movement_check = rollforward_control(
+        movement_build.records,
+        build.records,
+        movement_build.alignments,
+        movement_build.issues,
+        movement_build.population_coverage,
+    )
     period_check = continuity_control(build.records, handoff_path)
     controls = build_core_controls(build.records, build, handoff, judgment_issues, package, movement_control=movement_check, continuity_control=period_check)
     semantic_review = write_semantic_review(package, profiles, handoff, build, support_dir / "OCL_Stage2_Review.xlsx", judgment_issues=judgment_issues, controls=controls)
@@ -98,7 +104,7 @@ def run_part1(
         return Part1Result("AWAITING_CONTROL_ALIGNMENT", package, judgments, input_review, handoff=handoff, build=build, movement_build=movement_build, semantic_review=semantic_review, review_context=review_context, controls=controls)
     blueprint = build_blueprint(build.records, source_dataset_files=[path.name for path in package.datasets], has_rollforward_data=bool(movement_build.records), supported_analyses=())
     databook = render_workbook(blueprint, build.records, controls, working_databook, package=package, handoff=handoff)
-    embed_rollforward(databook, movement_build.records)
+    embed_rollforward(databook, movement_build.records, movement_build.population_coverage)
     reopened = load_workbook(databook, read_only=True, data_only=False)
     expected = [sheet.title for sheet in blueprint.sheets]
     if reopened.sheetnames != expected:

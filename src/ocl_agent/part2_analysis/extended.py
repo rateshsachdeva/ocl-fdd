@@ -266,6 +266,7 @@ def _persistent_accumulation(matrix, periods, categories) -> tuple[AnalysisTable
 
 
 def _movement_patterns(movements: tuple[MovementRecord, ...]) -> tuple[AnalysisTable, list[Finding]]:
+    partial = any(str(row.dimensions.get("population_coverage") or "").upper() == "PARTIAL" for row in movements)
     grouped: dict[tuple[str, str], dict[str, Decimal]] = {}
     reversal_amounts: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     for row in movements:
@@ -308,7 +309,8 @@ def _movement_patterns(movements: tuple[MovementRecord, ...]) -> tuple[AnalysisT
             ))
     return AnalysisTable(
         "movement_patterns",
-        "Utilisation / release and reversal patterns from explicit movement data",
+        "Utilisation / release and reversal patterns from explicit movement data"
+        + (" (selected population only)" if partial else ""),
         ("Category", "Period", "Opening", "Additions", "Releases / Utilisation", "Explicit Reversals", "Closing", "Utilisation %"),
         tuple(rows),
     ), findings
@@ -341,6 +343,23 @@ def _coverage_table(records, annual_periods, monthly_periods, movements, context
     has_monthly_4 = len(monthly_periods) >= 4
     has_monthly_12 = len(monthly_periods) >= 12
     has_movements = bool(movements)
+    partial_movements = has_movements and any(
+        str(row.dimensions.get("population_coverage") or "").upper() == "PARTIAL"
+        for row in movements
+    )
+    movement_status = "PARTIAL" if partial_movements else "SUPPORTED" if has_movements else "UNSUPPORTED"
+    movement_evidence = (
+        "Explicit movement roles and sign rules for selected records only"
+        if partial_movements
+        else "Explicit movement roles and sign rules"
+        if has_movements
+        else "Requires movement/release/payment data"
+    )
+    movement_limitation = (
+        "Supported for covered records only; selected movement coverage does not establish full OCL population completeness"
+        if partial_movements
+        else "Release/utilisation proxy from explicit movements"
+    )
     has_reviewed_debt = any(str(row.judgment.fdd_view or "").strip() for row in records)
 
     rows = [
@@ -353,9 +372,14 @@ def _coverage_table(records, annual_periods, monthly_periods, movements, context
         ("Persistent accumulation / unwind", "SUPPORTED" if has_monthly_12 else "UNSUPPORTED", "12M monthly movement sequence" if has_monthly_12 else "Requires at least 12 monthly periods", "Flags repeated directional build/unwind; cause still requires evidence"),
         ("Potential normalization", "REFERENCE_ONLY" if has_monthly_12 else "UNSUPPORTED", "12M average/median reference" if has_monthly_12 else "Requires at least 12 monthly periods", "Not an FDD adjustment; partner judgment still required"),
         ("Accrual-to-expense ratio", "SUPPORTED" if has_expense_ratio else "UNSUPPORTED", "Explicit EXPENSE_CONTEXT with matching periods" if has_expense_ratio else "Requires explicitly linked expense/P&L context", "Interpret only to the extent the expense base is explicitly linked; no generic P&L proxy is assumed"),
-        ("Utilisation", "SUPPORTED" if has_movements else "UNSUPPORTED", "Explicit movement roles and sign rules" if has_movements else "Requires movement/release/payment data", "Release/utilisation proxy from explicit movements"),
+        ("Utilisation", movement_status, movement_evidence, movement_limitation),
         ("Aged / stale accruals", "PARTIAL" if has_monthly_4 else "UNSUPPORTED", "Unchanged-balance stale proxy" if has_monthly_4 else "Requires monthly history; true aging requires dates", "Stale balance is not the same as invoice/obligation aging"),
-        ("Reversal patterns", "SUPPORTED" if has_movements else "UNSUPPORTED", "Explicit movement type evidence" if has_movements else "Requires movement/reversal data", "Only explicitly identified reversals are assessed"),
+        (
+            "Reversal patterns",
+            movement_status,
+            "Explicit movement type evidence for selected records only" if partial_movements else "Explicit movement type evidence" if has_movements else "Requires movement/reversal data",
+            "Only explicitly identified reversals are assessed; selected coverage is not a complete OCL population" if partial_movements else "Only explicitly identified reversals are assessed",
+        ),
         ("Debt-like treatment", "SUPPORTED" if has_reviewed_debt else "UNSUPPORTED", "Reviewed OCL judgment layer" if has_reviewed_debt else "Requires reviewed WC/debt-like judgments", "Human-reviewed classification remains authoritative"),
         ("Adequacy", "UNSUPPORTED", "Requires obligation/expense/settlement evidence beyond balance history", "Do not infer adequacy from balance movements alone"),
         ("Missing accruals", "UNSUPPORTED", "Requires completeness evidence such as subsequent payments, contracts, vendor/payroll or P&L support", "No unsupported completeness conclusion"),

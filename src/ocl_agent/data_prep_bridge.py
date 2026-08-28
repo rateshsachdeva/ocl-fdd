@@ -17,7 +17,7 @@ from typing import Any
 
 PUBLISHABLE_STATUSES = {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
 # Increment only when the standardized publication contract changes incompatibly.
-STANDARDIZATION_CONTRACT_VERSION = "2"
+STANDARDIZATION_CONTRACT_VERSION = "3"
 COORDINATION_KEYS = (
     "next_actor",
     "must_continue",
