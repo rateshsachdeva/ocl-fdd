@@ -20,12 +20,12 @@ from openpyxl.utils import get_column_letter
 from ocl_agent.part1_databook.input_contract import StandardizedPackage
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.part1_databook.workbook_blueprint import WorkbookBlueprint
+from ocl_agent.project_title import resolve_project_title
 from ocl_agent.schemas import ControlResult, OCLRecord, Scope
 from ocl_agent.workbook_hierarchy import apply_collapsed_detail_group, ordered_hierarchy
 from ocl_agent.workbook_style import style_generated_support_cell
 
 EXCEL_MAX_DATA_ROWS = 1_048_575
-PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 CORE_FLAT_COLUMNS = (
     "Source_Dataset", "Source_Record_ID", "Source_ID", "Source_Sheet", "Source_Cell", "Raw_Source_Sheet",
     "Entity", "Period", "Record_Usage", "Parent_Category", "Category", "Source_Label", "Source_Code", "Amount",
@@ -45,6 +45,7 @@ def render_workbook(blueprint: WorkbookBlueprint, records: Iterable[OCLRecord], 
     sheet_map = {spec.key: workbook.create_sheet(spec.title) for spec in blueprint.sheets}
     source_sheet_by_file = {spec.dataset_file: spec.title for spec in blueprint.sheets if spec.dataset_file}
     source_headers_by_file = _source_headers(package) if package is not None else {}
+    project_title = resolve_project_title(package=package)
     if package is not None:
         _write_source_copies(sheet_map, blueprint, package, handoff)
     flat_sheet = sheet_map.get("flat_file")
@@ -55,9 +56,9 @@ def render_workbook(blueprint: WorkbookBlueprint, records: Iterable[OCLRecord], 
         monthly_rows = tuple(row for row in rows if row.dimensions.get("record_usage") == "MONTHLY_RECORDS")
         _write_flat(monthly_sheet, monthly_rows, source_sheet_by_file, source_headers_by_file, handoff)
     if "balance_by_category" in sheet_map:
-        _write_balance(sheet_map["balance_by_category"], blueprint, rows, monthly=False)
+        _write_balance(sheet_map["balance_by_category"], blueprint, rows, monthly=False, project_title=project_title)
     if "monthly_balance" in sheet_map:
-        _write_balance(sheet_map["monthly_balance"], blueprint, rows, monthly=True)
+        _write_balance(sheet_map["monthly_balance"], blueprint, rows, monthly=True, project_title=project_title)
     if "checks" in sheet_map:
         _write_checks(sheet_map["checks"], checks, flat_sheet)
     if "mapping" in sheet_map:
@@ -167,11 +168,11 @@ def _source_headers(package: StandardizedPackage) -> dict[str, list[str]]:
     return result
 
 
-def _write_balance(sheet, blueprint: WorkbookBlueprint, rows: tuple[OCLRecord, ...], *, monthly: bool) -> None:
+def _write_balance(sheet, blueprint: WorkbookBlueprint, rows: tuple[OCLRecord, ...], *, monthly: bool, project_title: str) -> None:
     periods = blueprint.monthly_periods if monthly else blueprint.periods
     usage = "MONTHLY_RECORDS" if monthly else "OCL_RECORDS"
     flat_sheet = "Monthly Flat" if monthly else "Flat File"
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = project_title
     sheet["A2"] = sheet.title
     sheet["B6"] = "Monthly balance by category" if monthly else "Balance by category"
     for column, value in enumerate(("Category", *periods), start=2):

@@ -11,7 +11,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles import Font
 
-from ocl_agent.part2_analysis.run import PROJECT_LABEL, _analysis_sheet, _finish_sheet
+from ocl_agent.part2_analysis.run import _analysis_sheet, _finish_sheet
+from ocl_agent.project_title import resolve_project_title
 from ocl_agent.schemas import AnalysisResult, ManagementQuestion
 
 
@@ -39,7 +40,7 @@ def apply_partner_interpretation(
 
 def _write_deal_issues(workbook, finding_by_id: dict, interpretation: dict) -> None:
     sheet = workbook.create_sheet("Deal Issues")
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Key deal issues — FDD partner interpretation of finalized analysis"
     issues = interpretation.get("deal_issues") or []
     if not issues:

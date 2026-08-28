@@ -8,8 +8,8 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from ocl_agent.schemas import AnalysisResult, AnalysisTable
+from ocl_agent.project_title import resolve_project_title
 
-PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 def embed_extended_analysis(path: Path, result: AnalysisResult) -> None:
@@ -32,7 +32,7 @@ def _write_coverage_sheet(workbook, table: AnalysisTable | None) -> None:
     if table is None:
         return
     sheet = workbook.create_sheet("Analysis Coverage")
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Analysis Coverage"
     sheet["B6"] = "Which FDD analyses are supported by the evidence actually supplied"
     for col, header in enumerate(table.headers, start=2):
@@ -121,7 +121,7 @@ def _write_additional_analysis(workbook, result: AnalysisResult) -> None:
     if not tables:
         return
     sheet = workbook.create_sheet("Additional Analysis")
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Additional Analysis"
     sheet["B4"] = "Deterministic supporting analyses used by the FDD partner interpretation"
     row = 6

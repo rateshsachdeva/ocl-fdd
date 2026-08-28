@@ -68,7 +68,7 @@ def _source_control(records: tuple[OCLRecord, ...], package: StandardizedPackage
         with path.open(newline="", encoding="utf-8-sig") as handle:
             reader = csv.DictReader(handle)
             for csv_row, row in enumerate(reader, start=2):
-                if not _matches_filters(row, binding.filters):
+                if not binding.whole_dataset and not _matches_filters(row, binding.filters):
                     continue
                 period = str(row.get(binding.period_field, "") or "").strip()
                 raw_amount = str(row.get(binding.amount_field, "") or "").strip()

@@ -206,9 +206,9 @@ def test_ready_checkpoint_survives_real_finalization_lifecycle(tmp_path: Path, m
 
     real_publish = end_to_end.publish_versioned_databook
 
-    def publish(path, output):
+    def publish(path, output, **kwargs):
         counters["publication"] += 1
-        return real_publish(path, output)
+        return real_publish(path, output, **kwargs)
 
     monkeypatch.setattr(end_to_end, "run_full_data_preparation", cached_data_prep)
     monkeypatch.setattr(end_to_end, "apply_partner_interpretation", render_interpretation)
@@ -224,6 +224,9 @@ def test_ready_checkpoint_survives_real_finalization_lifecycle(tmp_path: Path, m
     completed = end_to_end.run_end_to_end(paths)
     assert completed.state == "READY"
     assert completed.published_version == 1
+    checkpoint = json.loads(completed.checkpoint.read_text(encoding="utf-8"))
+    assert checkpoint["qa_databook_hash"] == checkpoint["published_databook_hash"]
+    assert checkpoint["qa_databook_hash"] == checkpoint["working_databook_hash"]
     assert counters == {
         "part1": 1,
         "analysis": 1,
@@ -339,11 +342,12 @@ def test_final_presentation_qa_and_publication_order(tmp_path: Path, monkeypatch
         qa_path.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
         return {"status": "PASS"}
 
-    def publish(working, output):
+    def publish(working, output, *, expected_sha256=None):
         events.append("publication")
         target = output / "OCL_Databook_v1.xlsx"
         output.mkdir(parents=True, exist_ok=True)
         shutil.copy2(working, target)
+        assert expected_sha256 == end_to_end.sha256_file(target)
         return PublishedDatabook(1, target)
 
     monkeypatch.setattr(end_to_end, "apply_final_workbook_presentation", presentation)

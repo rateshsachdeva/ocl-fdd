@@ -58,6 +58,7 @@ def ensure_full_runtime() -> Path:
     project = RUNTIME / "fdd-data-preparation"
     marker = RUNTIME / ".bundle_sha256"
     if project.is_dir() and marker.exists() and marker.read_text(encoding="utf-8").strip() == digest:
+        _apply_runtime_repairs(project)
         _assert_required_runtime(project)
         _knowledge_module().hydrate_runtime(project, ROOT.parent, refresh_baseline=False)
         return project
@@ -88,6 +89,7 @@ def ensure_full_runtime() -> Path:
             ) from error
         candidate = extracted / "fdd-data-preparation"
         _assert_required_runtime(candidate)
+        _apply_runtime_repairs(candidate)
         if RUNTIME.exists():
             # Reusable knowledge is promoted only after a successful published
             # workflow. Do not persist possibly partial runtime edits here.
@@ -147,6 +149,17 @@ def _knowledge_module():
     sys.modules[_KNOWLEDGE_MODULE_NAME] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _apply_runtime_repairs(project: Path) -> None:
+    """Apply small, source-controlled repairs to the materialized vendor runtime."""
+    path = ROOT / "vendor" / "repairs" / "runtime_repairs.py"
+    spec = importlib.util.spec_from_file_location("_ocl_fdd_runtime_repairs", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load fdd-data-preparation runtime repairs.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.apply_runtime_repairs(project)
 
 
 def _bad_zip_members(package: ZipFile) -> list[str]:

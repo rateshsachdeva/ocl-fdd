@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 PUBLISHABLE_STATUSES = {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
+# Increment only when the standardized publication contract changes incompatibly.
+STANDARDIZATION_CONTRACT_VERSION = "2"
 COORDINATION_KEYS = (
     "next_actor",
     "must_continue",
@@ -118,7 +120,11 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
 
     bootstrap = _load_bootstrap(repo_root)
     latest = output_root / "latest"
-    cached_manifest = _publishable_latest_manifest(latest)
+    previous_manifest = _read_json(latest / "execution_manifest.json")
+    cached_manifest = _publishable_latest_manifest(
+        latest,
+        source_fingerprint=source_fingerprint,
+    )
     if cached_manifest:
         cached_status = str(cached_manifest["final_execution_status"])
         cached_execution_id = str(cached_manifest["execution_id"])
@@ -151,6 +157,10 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
             warnings=tuple(warnings),
         )
 
+    incompatible_published_execution_id = _incompatible_published_execution_id(
+        previous_manifest,
+        source_fingerprint=source_fingerprint,
+    )
     _project, fdd_data = bootstrap.activate_full_runtime()
     status = fdd_data.run_databook(
         source_dir,
@@ -176,9 +186,14 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
         and published_execution_id
         and current_execution_id == published_execution_id
     )
+    replaced_incompatible_publication = bool(
+        not incompatible_published_execution_id
+        or published_execution_id != incompatible_published_execution_id
+    )
     standardized_output = (
         latest
         if latest_belongs_to_current_run
+        and replaced_incompatible_publication
         and latest.is_dir()
         and published_status in PUBLISHABLE_STATUSES
         else None
@@ -186,6 +201,7 @@ def run_full_data_preparation(repo_root: Path, source_dir: Path, work_root: Path
 
     warnings: list[str] = []
     if standardized_output is not None:
+        _stamp_standardization_contract(latest, source_fingerprint)
         warnings.extend(
             _published_package_warnings(
                 bootstrap,
@@ -231,7 +247,11 @@ def _coordination_from_status(status: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _publishable_latest_manifest(latest: Path) -> dict[str, Any]:
+def _publishable_latest_manifest(
+    latest: Path,
+    *,
+    source_fingerprint: str,
+) -> dict[str, Any]:
     if not latest.is_dir():
         return {}
     try:
@@ -240,7 +260,13 @@ def _publishable_latest_manifest(latest: Path) -> dict[str, Any]:
         return {}
     execution_id = str(manifest.get("execution_id") or "").strip()
     published_status = str(manifest.get("final_execution_status") or "").strip()
+    cached_fingerprint = str(manifest.get("source_package_fingerprint") or "").strip()
+    cached_contract = str(manifest.get("standardization_contract_version") or "").strip()
     if not execution_id or published_status not in PUBLISHABLE_STATUSES:
+        return {}
+    if cached_fingerprint != source_fingerprint:
+        return {}
+    if cached_contract != STANDARDIZATION_CONTRACT_VERSION:
         return {}
     outputs_created = manifest.get("outputs_created")
     if not isinstance(outputs_created, list) or not outputs_created:
@@ -250,6 +276,40 @@ def _publishable_latest_manifest(latest: Path) -> dict[str, Any]:
         if relative.name != str(name) or not (latest / relative).is_file():
             return {}
     return manifest
+
+
+def _incompatible_published_execution_id(
+    manifest: dict[str, Any],
+    *,
+    source_fingerprint: str,
+) -> str:
+    """Identify an old publishable execution that must be replaced, not relabelled."""
+    execution_id = str(manifest.get("execution_id") or "").strip()
+    published_status = str(manifest.get("final_execution_status") or "").strip()
+    if not execution_id or published_status not in PUBLISHABLE_STATUSES:
+        return ""
+    cached_fingerprint = str(manifest.get("source_package_fingerprint") or "").strip()
+    cached_contract = str(manifest.get("standardization_contract_version") or "").strip()
+    if cached_fingerprint != source_fingerprint or cached_contract != STANDARDIZATION_CONTRACT_VERSION:
+        return execution_id
+    return ""
+
+
+def _stamp_standardization_contract(latest: Path, source_fingerprint: str) -> None:
+    """Bind a newly published package to its exact source and OCL-compatible contract."""
+    for filename in ("execution_manifest.json", "databook_metadata.json"):
+        path = latest / filename
+        if not path.is_file():
+            continue
+        payload = _read_json(path)
+        payload["source_package_fingerprint"] = source_fingerprint
+        payload["standardization_contract_version"] = STANDARDIZATION_CONTRACT_VERSION
+        temporary = path.with_name(f".{path.name}.contract.tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
 
 
 def _published_package_warnings(

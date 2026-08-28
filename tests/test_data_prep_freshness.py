@@ -8,18 +8,21 @@ from ocl_agent.end_to_end import _activate_source_package
 
 
 class _FakeFddData:
-    def __init__(self, status):
+    def __init__(self, status, on_run=None):
         self.status = status
+        self.on_run = on_run
         self.calls = []
 
     def run_databook(self, *args, **kwargs):
         self.calls.append((args, kwargs))
+        if self.on_run is not None:
+            self.on_run(*args, **kwargs)
         return dict(self.status)
 
 
 class _FakeBootstrap:
-    def __init__(self, status, knowledge_report=None):
-        self.fdd_data = _FakeFddData(status)
+    def __init__(self, status, knowledge_report=None, on_run=None):
+        self.fdd_data = _FakeFddData(status, on_run)
         self.knowledge_report = knowledge_report or {"accepted_rows": 0, "quarantined_rows": 0}
         self.knowledge_sync_calls = []
         self.activation_calls = 0
@@ -52,19 +55,23 @@ def _write_latest(
     final_execution_status: str = "COMPLETED",
     *,
     create_output: bool = True,
+    contract_version: str | None = data_prep_bridge.STANDARDIZATION_CONTRACT_VERSION,
+    source_fingerprint: str | None = None,
 ) -> Path:
     latest = _package_root(work_root, source_dir) / "output" / "latest"
     latest.mkdir(parents=True, exist_ok=True)
     if create_output:
         (latest / "standardized.csv").write_text("Category,Amount\nBonus,1\n", encoding="utf-8")
+    manifest = {
+        "execution_id": execution_id,
+        "final_execution_status": final_execution_status,
+        "outputs_created": ["standardized.csv"],
+        "source_package_fingerprint": source_fingerprint or data_prep_bridge.source_package_fingerprint(source_dir),
+    }
+    if contract_version is not None:
+        manifest["standardization_contract_version"] = contract_version
     (latest / "execution_manifest.json").write_text(
-        json.dumps(
-            {
-                "execution_id": execution_id,
-                "final_execution_status": final_execution_status,
-                "outputs_created": ["standardized.csv"],
-            }
-        ),
+        json.dumps(manifest),
         encoding="utf-8",
     )
     return latest
@@ -152,6 +159,76 @@ def test_exact_source_reuses_publishable_latest_without_new_ai_planning(
             "source_fingerprint": data_prep_bridge.source_package_fingerprint(source),
         }
     ]
+
+
+@pytest.mark.parametrize("contract_version", [None, "1"])
+def test_exact_source_with_missing_or_incompatible_contract_is_not_reused(
+    tmp_path: Path,
+    monkeypatch,
+    contract_version: str | None,
+):
+    work_root = tmp_path / "data_prep"
+    source = _source(tmp_path)
+    latest = _write_latest(
+        work_root,
+        source,
+        "EX_OLD_CONTRACT",
+        contract_version=contract_version,
+    )
+    status = {
+        "state": "AWAITING_AI_PLANNING",
+        "run_id": "RUN_REBUILD",
+        "next_actor": "AI_HOST",
+        "next_action": "UNDERSTAND_AND_PLAN",
+        "must_continue": True,
+    }
+    bootstrap = _FakeBootstrap(status)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
+
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+
+    assert result.state == "DATA_PREP_AWAITING_AI_PLANNING"
+    assert result.standardized_output is None
+    assert bootstrap.activation_calls == 1
+    assert len(bootstrap.fdd_data.calls) == 1
+    unchanged = json.loads((latest / "execution_manifest.json").read_text(encoding="utf-8"))
+    assert unchanged.get("standardization_contract_version") == contract_version
+
+
+def test_new_publication_is_stamped_with_source_and_standardization_contract(tmp_path: Path, monkeypatch):
+    work_root = tmp_path / "data_prep"
+    source = _source(tmp_path)
+    latest = _write_latest(work_root, source, "EX_OLD_CONTRACT", contract_version="1")
+    (latest / "databook_metadata.json").write_text(
+        json.dumps({"workflow_run_id": "RUN_REBUILT"}),
+        encoding="utf-8",
+    )
+    status = {
+        "state": "COMPLETED",
+        "run_id": "RUN_REBUILT",
+        "execution_id": "EX_REBUILT",
+        "next_actor": "NONE",
+        "next_action": "WORKFLOW_COMPLETE",
+        "must_continue": False,
+    }
+    def publish_rebuilt_package(_source, _runs_root, _output_root, **_kwargs):
+        manifest = json.loads((latest / "execution_manifest.json").read_text(encoding="utf-8"))
+        manifest["execution_id"] = "EX_REBUILT"
+        manifest.pop("standardization_contract_version", None)
+        (latest / "execution_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    bootstrap = _FakeBootstrap(status, on_run=publish_rebuilt_package)
+    monkeypatch.setattr(data_prep_bridge, "_load_bootstrap", lambda _root: bootstrap)
+
+    result = data_prep_bridge.run_full_data_preparation(tmp_path, source, work_root)
+
+    assert result.ready is True
+    assert bootstrap.activation_calls == 1
+    fingerprint = data_prep_bridge.source_package_fingerprint(source)
+    for filename in ("execution_manifest.json", "databook_metadata.json"):
+        payload = json.loads((latest / filename).read_text(encoding="utf-8"))
+        assert payload["source_package_fingerprint"] == fingerprint
+        assert payload["standardization_contract_version"] == data_prep_bridge.STANDARDIZATION_CONTRACT_VERSION
 
 
 @pytest.mark.parametrize(

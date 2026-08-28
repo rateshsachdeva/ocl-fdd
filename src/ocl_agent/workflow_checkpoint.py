@@ -118,4 +118,9 @@ def checkpoint_matches(checkpoint: dict[str, Any], expected: dict[str, Any]) -> 
             return False, "published databook is missing"
         if checkpoint.get("published_databook_hash") != sha256_file(published):
             return False, "published databook hash changed"
+        qa_databook_hash = checkpoint.get("qa_databook_hash")
+        if qa_databook_hash is not None and qa_databook_hash != checkpoint.get("published_databook_hash"):
+            return False, "final QA and published databook hashes differ"
+        if qa_databook_hash is not None and qa_databook_hash != checkpoint.get("working_databook_hash"):
+            return False, "final QA and working databook hashes differ"
     return True, "checkpoint matches current inputs"

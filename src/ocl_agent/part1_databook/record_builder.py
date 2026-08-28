@@ -92,7 +92,12 @@ def _build_dataset(
                 continue
             source = _source_reference(source_record_id)
             dimensions: dict[str, Any] = {"dataset_file": binding.file, "record_usage": usage.value, "standardized_csv_row": csv_row}
-            for role, column in (("source_code", fields.source_code), ("entity", fields.entity), ("currency", fields.currency)):
+            for role, column in (
+                ("source_code", fields.source_code),
+                ("item_identifier", fields.item_identifier),
+                ("entity", fields.entity),
+                ("currency", fields.currency),
+            ):
                 if column:
                     dimensions[role] = row.get(column)
             for column in binding.dimensions:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -15,6 +16,7 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
     databook = Path(databook)
     if not databook.exists():
         raise FinalQAError(f"Databook does not exist: {databook}")
+    input_hash = _sha256_file(databook)
     workbook = load_workbook(databook, read_only=False, data_only=False)
     issues: list[str] = []
     metrics: dict[str, object] = {"sheet_count": len(workbook.sheetnames), "sheets": list(workbook.sheetnames)}
@@ -99,10 +101,15 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
                 issues.append(f"{name} exists but contains no substantive analysis content.")
         metrics["narrative_sections_populated"] = narrative_status
 
-        metrics["status"] = "PASS" if not issues else "FAIL"
-        metrics["issues"] = issues
     finally:
         workbook.close()
+
+    output_hash = _sha256_file(databook)
+    metrics["databook_sha256"] = output_hash
+    if output_hash != input_hash:
+        issues.append("Databook bytes changed while final QA was running.")
+    metrics["status"] = "PASS" if not issues else "FAIL"
+    metrics["issues"] = issues
 
     if qa_output:
         qa_output = Path(qa_output)
@@ -111,6 +118,14 @@ def validate_final_databook(databook: Path, qa_output: Path | None = None) -> di
     if issues:
         raise FinalQAError("Final databook QA failed: " + " | ".join(issues))
     return metrics
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _find_headers(sheet, required: set[str]) -> tuple[int | None, dict[str, int]]:

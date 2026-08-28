@@ -75,6 +75,42 @@ def test_handoff_without_usage_filters_is_backward_compatible(tmp_path):
     assert parsed.record_bindings()[0].usage_filters == {}
 
 
+def test_explicit_item_identifier_role_is_validated_and_carried_to_records(tmp_path):
+    rows = [
+        {
+            'Source_Record_ID': '1',
+            'Account': 'Invoice accrual',
+            'Item_ID': 'INV-7',
+            'Period': 'FY24',
+            'Amount': '100',
+            'Entity': 'A',
+        }
+    ]
+    package = discover_standardized_package(_package(tmp_path, rows))
+    profiles = profile_package(package)
+    config = tmp_path / 'config'
+    _config(config)
+    (config / 'judgment_scope.csv').write_text(
+        'source_label,scope,review_status,reason\nInvoice accrual,IN_SCOPE,REVIEWED,reviewed\n',
+        encoding='utf-8',
+    )
+    (config / 'mapping.csv').write_text(
+        'source_label,category,parent_category,review_status,reason\nInvoice accrual,Other,Other,REVIEWED,\n',
+        encoding='utf-8',
+    )
+    handoff_path = config / 'semantic_handoff.json'
+    _handoff(handoff_path)
+    payload = json.loads(handoff_path.read_text(encoding='utf-8'))
+    payload['datasets'][0]['fields']['item_identifier'] = 'Item_ID'
+    handoff_path.write_text(json.dumps(payload), encoding='utf-8')
+
+    handoff = load_semantic_handoff(handoff_path, package, profiles)
+    result = build_ocl_records(package, handoff, load_judgments(config))
+
+    assert result.issues == ()
+    assert result.records[0].dimensions['item_identifier'] == 'INV-7'
+
+
 @pytest.mark.parametrize(
     ("usage_filters", "message"),
     [

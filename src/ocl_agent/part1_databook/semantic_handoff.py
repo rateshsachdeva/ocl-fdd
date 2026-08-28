@@ -22,6 +22,7 @@ class DatasetUsage(StrEnum):
     MONTHLY_RECORDS = "MONTHLY_RECORDS"
     MOVEMENT_RECORDS = "MOVEMENT_RECORDS"
     TB_CONTROL = "TB_CONTROL"
+    SUPPORTING_EVIDENCE = "SUPPORTING_EVIDENCE"
     REVENUE_CONTEXT = "REVENUE_CONTEXT"
     PAYROLL_CONTEXT = "PAYROLL_CONTEXT"
     EXPENSE_CONTEXT = "EXPENSE_CONTEXT"
@@ -36,14 +37,17 @@ class FieldBinding:
     amount: str | None = None
     source_label: str | None = None
     source_code: str | None = None
+    item_identifier: str | None = None
     entity: str | None = None
     currency: str | None = None
     movement_type: str | None = None
+    movement_multiplier: str | None = None
 
     def named_columns(self) -> tuple[str, ...]:
         return tuple(value for value in (
             self.source_record_id, self.period, self.amount, self.source_label,
-            self.source_code, self.entity, self.currency, self.movement_type,
+            self.source_code, self.item_identifier, self.entity, self.currency, self.movement_type,
+            self.movement_multiplier,
         ) if value)
 
 @dataclass(frozen=True)
@@ -72,6 +76,7 @@ class ControlBinding:
     period_field: str
     amount_field: str
     filters: dict[str, tuple[str, ...]]
+    whole_dataset: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,7 @@ def write_semantic_handoff_draft(
             "amount": by_fold.get("amount"),
             "source_label": by_fold.get("source_label"),
             "source_code": by_fold.get("source_code"),
+            "item_identifier": by_fold.get("item_identifier") or by_fold.get("item_id"),
             "entity": by_fold.get("entity"),
             "currency": by_fold.get("currency"),
             "movement_type": by_fold.get("movement_type"),
@@ -264,6 +270,7 @@ def load_semantic_handoff(
         raw_filters = item.get("filters") or {}
         if not isinstance(raw_filters, dict):
             raise SemanticHandoffError(f"Control {control_id!r}: filters must be an object.")
+        whole_dataset = bool(item.get("whole_dataset")) or str(item.get("population") or "").upper() == "WHOLE_DATASET"
         filters: dict[str, tuple[str, ...]] = {}
         for column, values in raw_filters.items():
             if isinstance(values, str):
@@ -277,6 +284,10 @@ def load_semantic_handoff(
             if not normalized_values:
                 raise SemanticHandoffError(f"Control {control_id!r}: filter {column!r} has no values.")
             filters[str(column)] = normalized_values
+        if not filters and not whole_dataset:
+            raise SemanticHandoffError(
+                f"Control {control_id!r} requires explicit filters or whole_dataset=true."
+            )
         available = set(profile_by_name[dataset_file].columns)
         referenced = {period_field, amount_field, *filters}
         missing = sorted(value for value in referenced if not value or value not in available)
@@ -284,7 +295,7 @@ def load_semantic_handoff(
             raise SemanticHandoffError(
                 f"Control {control_id!r} references missing/blank columns: {', '.join(repr(value) for value in missing)}"
             )
-        control_bindings.append(ControlBinding(control_id, dataset_file, period_field, amount_field, filters))
+        control_bindings.append(ControlBinding(control_id, dataset_file, period_field, amount_field, filters, whole_dataset))
 
     handoff = SemanticHandoff(
         version,

@@ -10,6 +10,7 @@ from ocl_agent.part2_analysis.context import load_context
 from ocl_agent.part2_analysis.extended import extended_analysis
 from ocl_agent.part2_analysis.extended_render import embed_extended_analysis
 from ocl_agent.part2_analysis.run import run_analysis as run_base_analysis
+from ocl_agent.part2_analysis.supporting_evidence import load_supporting_evidence_tables
 from ocl_agent.schemas import AnalysisResult, MovementRecord, OCLRecord
 
 
@@ -27,11 +28,17 @@ def run_analysis(
     base = run_base_analysis(rows, databook_path, package=package, handoff=handoff)
     context = load_context(package, handoff) if package is not None and handoff is not None else {}
     extra_findings, extra_tables = extended_analysis(rows, movements=movement_rows, context=context)
+    supporting_tables = (
+        load_supporting_evidence_tables(package, handoff)
+        if package is not None and handoff is not None
+        else ()
+    )
 
     seen = {item.finding_id for item in base.findings}
     findings = (*base.findings, *(item for item in extra_findings if item.finding_id not in seen))
     table_keys = {table.key for table in base.tables}
-    tables = (*base.tables, *(table for table in extra_tables if table.key not in table_keys))
+    additional_tables = (*extra_tables, *supporting_tables)
+    tables = (*base.tables, *(table for table in additional_tables if table.key not in table_keys))
     result = AnalysisResult(findings, tables, base.annual_periods, base.monthly_periods, base.latest_annual_period)
     embed_extended_analysis(Path(databook_path), result)
     return result

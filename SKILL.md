@@ -48,6 +48,26 @@ versioned OCL_Databook_vN.xlsx
 
 `run_all.py` is the public launcher.
 
+## Host discovery and execution
+
+`SKILL.md` is the authoritative repository operating and methodology document. Host-specific files such as `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md` are discovery shims only and must not duplicate this methodology.
+
+The normal standalone terminal workflow remains:
+
+```text
+python run_all.py
+```
+
+In an already-open coding-agent host, when the user says "run the skill", "run OCL", "build the databook", "process the source files" or equivalent, act as the external AI host and run:
+
+```text
+python run_all.py --ai-host external
+```
+
+When the workflow returns a coordination object where `next_actor=AI_HOST` and `must_continue=true`, the AI host must read the referenced instruction, handoff and evidence paths, create or update exactly the required artifacts, rerun `python run_all.py --ai-host external` and continue automatically.
+
+Stop only at `READY`, `FAILED` or a genuine `HUMAN` judgment checkpoint. Do not modify production code merely to complete an engagement. If a required AI-host artifact cannot be created, stop safely rather than inventing or bypassing it.
+
 ## Full fdd-data-preparation boundary
 
 Raw client workbook structure belongs entirely to the embedded full `fdd-data-preparation` workflow.
@@ -65,9 +85,9 @@ It owns:
 - row and field lineage;
 - execution manifest and metadata publication.
 
-The data-preparation AI layer is **provider-neutral, not absent**. Codex, Claude Code, GitHub Copilot or another capable coding agent may perform the contextual reasoning. Python itself does not call an external LLM API.
+The data-preparation AI layer is **provider-neutral, not absent**. Codex, Claude Code, GitHub Copilot or another capable coding-agent host may perform the contextual reasoning. Python itself does not call an external LLM API.
 
-When the upstream Python state machine requires reasoning, it returns a coordination object identifying `next_actor`, `next_action`, `relevant_instruction`, `handoff_path` and required artifacts. A coding-agent host must follow `AGENTS.md`, create those artifacts and rerun until publication or a genuine human checkpoint.
+When the upstream Python state machine requires reasoning, it returns a coordination object identifying `next_actor`, `next_action`, `relevant_instruction`, `handoff_path` and required artifacts. The coding-agent host must follow the coordination instructions and this skill, create those artifacts and rerun until publication or a genuine human checkpoint.
 
 During `UNDERSTAND_AND_PLAN`, source-present supporting FDD datasets must not be discarded merely because they are not the core annual OCL listing. Where evidence supports their role, preserve monthly P&L/expense, detailed accrual schedules, movement/reversal/settlement data, revenue/payroll context, account mapping and similar supporting datasets in the Dataset Map / Processing Plan.
 
@@ -172,6 +192,7 @@ Dataset usages are:
 - `MONTHLY_RECORDS`
 - `MOVEMENT_RECORDS`
 - `TB_CONTROL`
+- `SUPPORTING_EVIDENCE`
 - `REVENUE_CONTEXT`
 - `PAYROLL_CONTEXT`
 - `EXPENSE_CONTEXT`
@@ -179,7 +200,11 @@ Dataset usages are:
 
 For OCL/monthly records, required roles are `source_record_id`, `period`, `amount`, `source_label`. Optional roles include `source_code`, `entity`, `currency` and available dimensions.
 
-Movement records additionally require `movement_type`, with explicit source-value rules mapped to `OPENING`, `FLOW` or `CLOSING` and explicit multipliers. Period alignments are package-specific.
+Movement records additionally require canonical `Movement_Type` values of `OPENING`, `FLOW` or `CLOSING` and explicit numeric `Movement_Multiplier` sign treatment. Source-value mappings belong only in the exact approved, source-bound Processing Plan through generic `MAP_VALUES`; they must never become client-specific Python rules. Period alignments are package-specific.
+
+`SUPPORTING_EVIDENCE` preserves source-backed standardized datasets for bounded deterministic inclusion in the analysis evidence supplied to AI #2. Supporting rows never become OCL foundation records and therefore cannot change OCL totals or controls. Any bounded selection must disclose its row count and selection method.
+
+A canonical `tb_control.csv` may bind its whole dataset as the explicit OCL control population when the source-bound Processing Plan has already published exactly that population with valid business `Period` and numeric `Amount`. A literal source value such as `OCL` is not required. Mixed or otherwise ambiguous control populations require an explicit filter and remain unresolved when no safe binding exists.
 
 Context datasets require explicit `period` and `amount` roles. `EXPENSE_CONTEXT` is only for a genuinely relevant source-backed P&L/expense measure; do not substitute an unrelated denominator.
 
@@ -202,6 +227,7 @@ Where monthly/annual balances support it, Python calculates:
 - stale-balance proxy from unchanged monthly history;
 - 12-month balance persistence / recurrence proxy;
 - 12-month average and median normalization reference.
+- item-level monthly new balances, falls to nil, stale-balance proxies, unusual builds and material concentration using a reliable source-bound identifier such as `source_code`, qualified by source-bound entity context where needed. Descriptions and categories remain context only and never synthesize item identity.
 
 The recurrence output is a **balance-pattern proxy**, not proof of economic recurrence. The normalization output is a **reference**, not an automatic normalized-working-capital adjustment.
 
@@ -255,6 +281,13 @@ Deterministic code establishes numeric observations. AI interprets the validated
 
 After Python creates the analytical evidence pack, the AI host writes Deal Issues, Key Findings and Management Q&A from that evidence only.
 
+Materiality remains deterministic:
+
+- Databook review: absolute movement >= 100,000 **OR** percentage movement >= 10%.
+- Headline trigger: absolute movement >= 100,000 **AND** percentage movement >= 30%.
+
+AI must not recalculate, override or invent an amount, percentage, classification or materiality result. It should focus on deal implications, normalized working capital, net debt/equity value, QoE, representativeness of closing balances, validity/completeness, settlement/release risk and the specific facts still needed from management.
+
 Questions arise only from actual evidence/findings. Do not ask questions for the sake of filling a sheet.
 
 - Ask one focused operational/evidential point per question.
@@ -286,6 +319,8 @@ Key conventions include:
 - visible `UNMAPPED` and scope-excluded material;
 - readable findings and management questions.
 
+Workbook titles use an explicit upstream engagement/company label or one unique evidenced entity when available. If upstream identity is absent or ambiguous, the neutral title is `Other Current Liabilities`; `TargetCo` is not a generic fallback.
+
 ## Final QA
 
 After analysis/questions and styling, the workbook is reopened and independently checked for:
@@ -297,6 +332,8 @@ After analysis/questions and styling, the workbook is reopened and independently
 - broken `#REF!` formulas;
 - substantive narrative sections in a full analysis run;
 - successful reopen.
+
+Publication order is invariant: final presentation, QA of the exact final bytes, atomic publication of those same bytes, then a `READY` checkpoint whose QA/working/published SHA-256 values agree. The existing protected `SRC_*` behavior is part of QA and must not be treated as defective without evidence.
 
 ## Completion rule
 

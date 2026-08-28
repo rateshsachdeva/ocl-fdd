@@ -7,8 +7,8 @@ from openpyxl import load_workbook
 
 from ocl_agent.part3_qanda.engine import build_questions
 from ocl_agent.schemas import AnalysisResult, ManagementQuestion
+from ocl_agent.project_title import resolve_project_title
 
-PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 def run_qanda(analysis: AnalysisResult, databook_path: Path) -> tuple[ManagementQuestion, ...]:
@@ -23,7 +23,7 @@ def _embed_questions(path: Path, questions: tuple[ManagementQuestion, ...], anal
         if name in workbook.sheetnames:
             del workbook[name]
     sheet = workbook.create_sheet("Q&A")
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Management Q&A"
     sheet["B6"] = "Material management questions arising from the OCL analysis"
     headers = ["#", "FDD Lens", "Theme", "Question", "Why it matters", "Evidence trigger", "Management Response"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +30,12 @@ def next_output_version(output_dir: Path) -> int:
     return highest + 1
 
 
-def publish_versioned_databook(databook: Path, output_dir: Path) -> PublishedDatabook:
+def publish_versioned_databook(
+    databook: Path,
+    output_dir: Path,
+    *,
+    expected_sha256: str | None = None,
+) -> PublishedDatabook:
     """Publish one immutable databook version using an atomic final rename."""
     databook = Path(databook)
     output_dir = Path(output_dir)
@@ -47,6 +53,8 @@ def publish_versioned_databook(databook: Path, output_dir: Path) -> PublishedDat
         if temp.exists():
             temp.unlink()
         shutil.copy2(databook, temp)
+        if expected_sha256 is not None and _sha256_file(temp) != expected_sha256:
+            raise RuntimeError("Published databook copy does not match the exact final-QA workbook bytes.")
         temp.replace(databook_target)
     except Exception:
         if temp.exists():
@@ -54,3 +62,11 @@ def publish_versioned_databook(databook: Path, output_dir: Path) -> PublishedDat
         raise
 
     return PublishedDatabook(version=version, databook=databook_target)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

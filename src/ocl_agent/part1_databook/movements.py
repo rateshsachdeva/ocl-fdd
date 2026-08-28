@@ -22,10 +22,10 @@ from ocl_agent.part1_databook.judgments import JudgmentStore
 from ocl_agent.part1_databook.reconciliation import DEFAULT_TOLERANCE
 from ocl_agent.part1_databook.semantic_handoff import DatasetUsage, SemanticHandoff
 from ocl_agent.schemas import CheckStatus, ControlResult, MovementRecord, OCLRecord, ReviewStatus, Scope, SourceReference
+from ocl_agent.project_title import resolve_project_title
 from ocl_agent.workbook_style import style_generated_support_cell
 
 ALLOWED_ROLES = {"OPENING", "FLOW", "CLOSING"}
-PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,7 @@ def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judg
                 if rule is None:
                     issues.append(f"{binding.file}:{csv_row}: movement type {raw_type!r} is not explicitly mapped.")
                     continue
+                role, rule_multiplier = rule
                 source_record_id = str(row.get(fields.source_record_id, "") or "").strip()
                 period = str(row.get(fields.period, "") or "").strip()
                 label = str(row.get(fields.source_label, "") or "").strip()
@@ -91,15 +92,27 @@ def build_movements(package: StandardizedPackage, handoff: SemanticHandoff, judg
                 except InvalidOperation:
                     issues.append(f"{binding.file}:{csv_row}: movement amount is not numeric.")
                     continue
+                row_multiplier = rule_multiplier
+                if fields.movement_multiplier:
+                    try:
+                        row_multiplier = Decimal(str(row.get(fields.movement_multiplier, "") or "").strip().replace(",", ""))
+                    except InvalidOperation:
+                        issues.append(f"{binding.file}:{csv_row}: movement multiplier is not numeric.")
+                        continue
+                    if row_multiplier not in {Decimal("-1"), Decimal("1")}:
+                        issues.append(f"{binding.file}:{csv_row}: movement multiplier must be -1 or 1.")
+                        continue
+                if role in {"OPENING", "CLOSING"} and row_multiplier != Decimal("1"):
+                    issues.append(f"{binding.file}:{csv_row}: {role} movement multiplier must be 1.")
+                    continue
                 source_code = str(row.get(fields.source_code, "") or "").strip() if fields.source_code else None
                 entity = str(row.get(fields.entity, "") or "").strip() if fields.entity else None
                 judgment = judgments.get(label, source_code, entity)
                 if judgment.scope == Scope.REVIEW_REQUIRED or judgment.review_status != ReviewStatus.REVIEWED:
                     issues.append(f"{binding.file}:{csv_row}: movement label {label!r} does not have reviewed OCL judgment.")
                     continue
-                role, multiplier = rule
                 dimensions = {"dataset_file": binding.file, "standardized_csv_row": csv_row, "source_code": source_code, "entity": entity, "raw_movement_type": raw_type}
-                records.append(MovementRecord(SourceReference(source_record_id), period, amount, label, role, multiplier, judgment, dimensions))
+                records.append(MovementRecord(SourceReference(source_record_id), period, amount, label, role, row_multiplier, judgment, dimensions))
     if movement_bindings and not alignments:
         issues.append("movement_to_annual alignment is missing.")
     if any(not item.movement_period or not item.annual_period for item in alignments):
@@ -173,7 +186,7 @@ def embed_rollforward(databook_path: Path, movements: tuple[MovementRecord, ...]
     support.freeze_panes = "A2"
     support.sheet_view.showGridLines = False
 
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Roll-forward"
     periods = sorted({period for period, _category in grouped})
     categories = sorted({category for _period, category in grouped})

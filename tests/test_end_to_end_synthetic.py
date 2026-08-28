@@ -121,7 +121,7 @@ def test_complete_synthetic_workflow(tmp_path: Path):
     assert "Item Monthly Charts" in workbook.sheetnames
     assert "Monthly Balance" in workbook.sheetnames
     assert "SRC_ocl_annual" in workbook.sheetnames
-    assert workbook["Key Findings"]["A1"].value == "TargetCo - Other Current Liabilities"
+    assert workbook["Key Findings"]["A1"].value == "Other Current Liabilities"
     assert workbook["Key Findings"]["B7"].value == "ID"
     assert workbook["Q&A"]["B7"].value == "#"
     assert workbook["Flat File"]["A2"].value == "Source_Dataset"

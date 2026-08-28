@@ -387,10 +387,20 @@ def _finalize_databook(
     qa_started = time.perf_counter()
     qa = validate_final_databook(working_databook, qa_path)
     timings["final_qa"] = time.perf_counter() - qa_started
+    qa_databook_hash = sha256_file(working_databook)
+    if qa.get("databook_sha256") not in (None, qa_databook_hash):
+        raise RuntimeError("Final QA result is not bound to the current final workbook bytes.")
 
     publication_started = time.perf_counter()
-    published = publish_versioned_databook(working_databook, paths.output)
+    published = publish_versioned_databook(
+        working_databook,
+        paths.output,
+        expected_sha256=qa_databook_hash,
+    )
     timings["version_publication"] = time.perf_counter() - publication_started
+    published_databook_hash = sha256_file(published.databook)
+    if published_databook_hash != qa_databook_hash:
+        raise RuntimeError("Published databook bytes differ from the exact workbook that passed final QA.")
     _write_stage_checkpoint(
         checkpoint_path,
         identity,
@@ -401,7 +411,8 @@ def _finalize_databook(
         analysis_interpretation_hash=sha256_file(interpretation_path),
         published_version=published.version,
         published_databook_path=str(published.databook.resolve()),
-        published_databook_hash=sha256_file(published.databook),
+        published_databook_hash=published_databook_hash,
+        qa_databook_hash=qa_databook_hash,
         final_qa_path=str(Path(qa_path).resolve()),
         final_qa_hash=sha256_file(qa_path),
         finding_count=len(interpretation.get("key_findings") or []),

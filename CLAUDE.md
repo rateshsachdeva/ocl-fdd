@@ -1,13 +1,11 @@
-# Claude Code instructions
+# OCL FDD
 
-Read and follow `AGENTS.md` as the canonical operating contract for this repository.
+Read and follow `SKILL.md`. `SKILL.md` is authoritative.
 
-In particular, when `python run_all.py` returns `Workflow coordination` with:
+When asked to run the skill, execute the complete workflow as the external AI host using:
 
-```json
-{"next_actor": "AI_HOST", "must_continue": true}
-```
+`python run_all.py --ai-host external`
 
-continue the workflow in the same Claude Code session: read the referenced instruction and evidence, create the required Dataset Map / Processing Plan / OCL semantic artifact without inventing financial values, rerun `python run_all.py`, and repeat until `READY`, a genuine `HUMAN` checkpoint, or `FAILED`.
+Continue automatically through checkpoints where `next_actor=AI_HOST` and `must_continue=true`, and stop only at `READY`, `FAILED` or a genuine `HUMAN` judgment checkpoint.
 
-Do not add raw-client Excel layout parsing to `ocl_agent`. The full embedded `fdd-data-preparation` workflow owns source understanding and standardization; OCL starts from its published standardized package.
+Do not duplicate methodology here.

@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
@@ -22,8 +23,10 @@ _REQUIRED_RECORD_FIELDS = {
 }
 _OPTIONAL_RECORD_FIELDS = {
     "source_code": "Source_Code",
+    "item_identifier": "Item_ID",
     "entity": "Entity",
     "currency": "Currency",
+    "movement_multiplier": "Movement_Multiplier",
 }
 
 
@@ -56,6 +59,7 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
         required = dict(_REQUIRED_RECORD_FIELDS)
         if movement:
             required["movement_type"] = "Movement_Type"
+            required["movement_multiplier"] = "Movement_Multiplier"
         if not headers or any(column not in headers for column in required.values()):
             return
         fields = dict(required)
@@ -70,7 +74,10 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
             "notes": "Canonical integrated data-preparation output; semantics carried forward deterministically.",
         }
         if movement:
-            item["movement_rules"] = _movement_rules(path)
+            rules = _movement_rules(path)
+            if not rules:
+                return
+            item["movement_rules"] = rules
         datasets.append(item)
 
     def add_context(file: str, usage: str, amount_candidates: tuple[str, ...]) -> None:
@@ -115,6 +122,7 @@ def ensure_semantic_handoff(data_prep_output: Path, config_dir: Path) -> Path | 
     add_context("revenue_context.csv", "REVENUE_CONTEXT", ("Amount", "Revenue"))
     add_context("payroll_context.csv", "PAYROLL_CONTEXT", ("Amount", "Payroll"))
     add_context("expense_context.csv", "EXPENSE_CONTEXT", ("Amount", "Expense"))
+    _add_supporting_evidence(data_prep_output, datasets)
 
     if not any(set(item["usages"]) & {"OCL_RECORDS", "MONTHLY_RECORDS"} for item in datasets):
         return None
@@ -165,25 +173,32 @@ def _headers(path: Path) -> set[str]:
 
 
 def _movement_rules(path: Path) -> dict[str, dict[str, object]]:
+    """Accept only the canonical movement roles published by data preparation."""
     if not path.exists():
         return {}
     rules: dict[str, dict[str, object]] = {}
     for value in _unique_values(path, "Movement_Type"):
-        normalized = re.sub(r"[^a-z]+", " ", value.casefold()).strip()
-        if normalized in {"opening", "opening balance", "brought forward", "beginning balance"}:
-            rules[value] = {"role": "OPENING", "multiplier": 1}
-        elif normalized in {"closing", "closing balance", "ending balance", "carried forward"}:
-            rules[value] = {"role": "CLOSING", "multiplier": 1}
-        elif any(token in normalized for token in ("utilis", "usage", "release", "payment", "paid", "settlement", "reversal")):
-            rules[value] = {"role": "FLOW", "multiplier": -1}
-        else:
-            rules[value] = {"role": "FLOW", "multiplier": 1}
+        role = value.strip().upper()
+        if role not in {"OPENING", "FLOW", "CLOSING"}:
+            return {}
+        rules[value] = {"role": role, "multiplier": 1}
     return rules
 
 
 def _control_bindings(path: Path) -> list[dict[str, object]]:
-    if not path.exists() or not {"Period", "Amount", "Control"}.issubset(_headers(path)):
+    headers = _headers(path)
+    if not path.exists() or not {"Period", "Amount"}.issubset(headers):
         return []
+    if not _valid_control_rows(path):
+        return []
+    if "Control" not in headers:
+        return [{
+            "control_id": "chk_listing_vs_tb",
+            "dataset_file": "tb_control.csv",
+            "period_field": "Period",
+            "amount_field": "Amount",
+            "whole_dataset": True,
+        }]
     values = _unique_values(path, "Control")
     normalized = {value: _norm(value) for value in values}
     controls: list[dict[str, object]] = []
@@ -206,6 +221,52 @@ def _control_bindings(path: Path) -> list[dict[str, object]]:
             "filters": {"Control": [current_liabilities]},
         })
     return controls
+
+
+def _valid_control_rows(path: Path) -> bool:
+    """Require a business period and numeric amount before auto-binding a control."""
+    found = False
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            period = str(row.get("Period", "") or "").strip()
+            raw_amount = str(row.get("Amount", "") or "").strip().replace(",", "")
+            if not period or _year_of(period) is None or not raw_amount:
+                return False
+            try:
+                Decimal(raw_amount)
+            except InvalidOperation:
+                return False
+            found = True
+    return found
+
+
+def _add_supporting_evidence(data_prep_output: Path, datasets: list[dict[str, object]]) -> None:
+    already_bound = {str(item.get("file")) for item in datasets}
+    for path in sorted(Path(data_prep_output).glob("*.csv")):
+        if path.name in already_bound or path.name in {"lineage.csv", "field_lineage.csv", "exclusions.csv", "processing_issues.csv"}:
+            continue
+        headers = _headers(path)
+        if not headers or "Source_Record_ID" not in headers:
+            continue
+        fields: dict[str, str] = {"source_record_id": "Source_Record_ID"}
+        for role, column in (
+            ("period", "Period"),
+            ("amount", "Amount"),
+            ("source_label", "Source_Label"),
+            ("source_code", "Source_Code"),
+            ("entity", "Entity"),
+            ("currency", "Currency"),
+        ):
+            if column in headers:
+                fields[role] = column
+        dimensions = sorted(headers - set(fields.values()))
+        datasets.append({
+            "file": path.name,
+            "usages": ["SUPPORTING_EVIDENCE"],
+            "fields": fields,
+            "dimensions": dimensions,
+            "notes": "Lineage-bound standardized supporting evidence; not part of OCL foundation totals.",
+        })
 
 
 def _unique_values(path: Path, field: str) -> list[str]:

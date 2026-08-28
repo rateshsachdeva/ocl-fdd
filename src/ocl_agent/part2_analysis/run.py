@@ -21,23 +21,23 @@ from openpyxl.utils import get_column_letter
 from ocl_agent.part1_databook.input_contract import StandardizedPackage
 from ocl_agent.part1_databook.semantic_handoff import SemanticHandoff
 from ocl_agent.part2_analysis.context import enrich_with_context, load_context
-from ocl_agent.part2_analysis.diagnostics import diagnostic_findings
+from ocl_agent.part2_analysis.diagnostics import diagnostic_analysis
 from ocl_agent.part2_analysis.engine import DATABOOK_PERCENT_THRESHOLD, analyse_records
 from ocl_agent.schemas import AnalysisResult, Finding, OCLRecord
+from ocl_agent.project_title import resolve_project_title
 from ocl_agent.workbook_hierarchy import copy_row_outline
 
-PROJECT_LABEL = "TargetCo - Other Current Liabilities"
 ANALYSIS_SHEETS = ("Analysis Summary", "Seasonality", "Item Monthly Charts", "Deal Issues", "Key Findings")
 
 
 def run_analysis(records: Iterable[OCLRecord], databook_path: Path, *, package: StandardizedPackage | None = None, handoff: SemanticHandoff | None = None) -> AnalysisResult:
     rows = tuple(records)
     base = analyse_records(rows)
-    extra = diagnostic_findings(rows)
+    extra, diagnostic_tables = diagnostic_analysis(rows)
     seen = {item.finding_id for item in base.findings}
     result = AnalysisResult(
         (*base.findings, *(item for item in extra if item.finding_id not in seen)),
-        base.tables,
+        (*base.tables, *diagnostic_tables),
         base.annual_periods,
         base.monthly_periods,
         base.latest_annual_period,
@@ -74,7 +74,7 @@ def _embed_analysis(path: Path, result: AnalysisResult, handoff: SemanticHandoff
 
 def _analysis_sheet(workbook, name: str, purpose: str):
     sheet = workbook.create_sheet(name)
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = name
     sheet["B6"] = purpose
     sheet.column_dimensions["A"].width = 5
@@ -314,7 +314,7 @@ def _write_monthly_charts(workbook) -> None:
 
 def _write_deal_issues(workbook, findings: tuple[Finding, ...]) -> None:
     sheet = workbook.create_sheet("Deal Issues")
-    sheet["A1"] = PROJECT_LABEL
+    sheet["A1"] = resolve_project_title(workbook=workbook)
     sheet["A2"] = "Key deal issues this block answers"
     if not findings:
         sheet["A4"] = "No material deal issue identified from the available evidence"

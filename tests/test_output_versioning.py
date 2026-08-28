@@ -1,4 +1,7 @@
 from pathlib import Path
+import hashlib
+
+import pytest
 
 from ocl_agent.output_versioning import next_output_version, publish_versioned_databook
 
@@ -42,3 +45,13 @@ def test_version_scan_uses_only_versioned_databooks(tmp_path: Path):
     _write(output / "other.xlsx", "z")
 
     assert next_output_version(output) == 3
+
+
+def test_publication_rejects_bytes_other_than_the_final_qa_hash(tmp_path: Path):
+    output = tmp_path / "output"
+    working = _write(tmp_path / "work" / "OCL_Databook_working.xlsx", "final-bytes")
+
+    with pytest.raises(RuntimeError, match="exact final-QA workbook bytes"):
+        publish_versioned_databook(working, output, expected_sha256=hashlib.sha256(b"different").hexdigest())
+
+    assert not list(output.glob("OCL_Databook_v*.xlsx"))
